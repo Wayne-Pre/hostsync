@@ -779,6 +779,8 @@ The Stage 3 exit-criteria upgrades (spec §6.3) are proven by three extra files:
 | Append-only ledger | `26-ledger-invariants.test.ts` | A DB trigger refuses `UPDATE`/`DELETE`; amount signs carry direction; a payment flip appends a linked reversing entry that nets to zero instead of rewriting the credit; a booking reversal is revenue going away, never an expense; account balances derive from the ledger |
 | Statement freeze | `27-statement-immutability.test.ts` | `gross − expenses − fee = net` and `fee = gross × bps` are DB check constraints; approval and payment record the acting user; regenerating a paid period is a 409 and leaves the snapshot untouched; a paid row cannot be edited even with raw SQL |
 | Reconciliation | `28-reconciliation.test.ts` | The nightly job (`npm run reconcile`) reports zero drift on a clean seed set, then names the exact booking, statement and account rows after drift is injected, and returns to zero when they are repaired |
+| Statement detail | `29-statement-detail.test.ts` | The "View" button opens a real dialog: lines sum to the statement net, each line drills down to the ledger entry behind it, and approval freezes the lines so a later expense cannot change them |
+| Fee history | `30-fee-history.test.ts` | An effective-dated fee override is stored and listed; a backdated change leaves a settled statement's snapshot intact, a new statement uses the rate in force at its period start, and invalid/duplicate overrides are refused |
 
 The screens behind these endpoints are `web/financials.tsx` (F-62–F-67), `web/payouts.tsx` (F-68–F-72) and `web/settings.tsx` (F-73–F-75). They render the server's numbers; the arithmetic above is asserted at the I level.
 
@@ -806,6 +808,9 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 | Append-only ledger | **Done** — migration 011/012 sign every entry, block `UPDATE`/`DELETE` in the database, and link a correcting entry to the one it reverses; a single escape hatch exists for account erasure |
 | Statement freeze | **Done** — migration 013 checks both statement equations, stores the approving/paying actor, and seals paid rows; regeneration of a frozen period is a 409 |
 | Reconciliation | **Done** — `src/reconcile.ts` + `GET /api/financials/reconciliation` + `npm run reconcile` compare bookings, ledger entries, statements and account balances, reporting zero drift on the seed set |
+| Statement detail | **Done** — migration 014 freezes line items at approval, `GET /api/statements/:id` exposes them with their ledger entries, and the payouts screen's "View" button opens the drill-down dialog |
+| Fee history | **Done** — migration 015 stores effective-dated fee overrides; new statements use the bps in force at their period start, and a backdated change cannot rewrite a settled statement |
+| pg DATE handling | **Fixed** — `pg` returns `DATE` as local midnight; date-only fields are now formatted from local components so a statement's period and a fee's effective date cannot shift a day in UTC+3 |
 
 ### 8.4 Known deliberate divergences from the original
 
@@ -823,13 +828,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 147
-ℹ pass 147
+ℹ tests 153
+ℹ pass 153
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 70 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation).
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 76 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees).
 
 Reproduce it with:
 

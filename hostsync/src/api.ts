@@ -37,9 +37,11 @@ import {
 import { defaultTransport } from './mail.ts';
 import type { MailTransport } from './mail.ts';
 import {
+  addFeeOverride,
   financialKpis,
   generateStatement,
   listAccounts,
+  listFeeOverrides,
   listStatements,
   listTransactions,
   monthlySeries,
@@ -56,6 +58,7 @@ import {
   updatePortfolioSettings,
 } from './settings.ts';
 import { reconcilePortfolio } from './reconcile.ts';
+import { statementDetail } from './statementDetail.ts';
 import type { FetchLike } from './ics/sync.ts';
 import type { Property } from './properties.ts';
 import { rangeLabel } from '../shared/calendarLabel.ts';
@@ -465,6 +468,31 @@ export async function registerApi(
         const portfolio = await requirePortfolio(request.session!.user.id);
         const property = await requireProperty(params(request).id!, portfolio.id);
         return { property: await archiveProperty(property.id) };
+      });
+
+      // ---- F-70 fee history ---------------------------------------------------
+      api.get('/properties/:id/fees', async (request) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const property = await requireProperty(params(request).id!, portfolio.id);
+        return { fees: await listFeeOverrides(property.id) };
+      });
+
+      api.post('/properties/:id/fees', async (request, reply) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const property = await requireProperty(params(request).id!, portfolio.id);
+        const input = body(request);
+        const percent = input.managementFeePercent;
+        const feeBps =
+          input.feeBps !== undefined
+            ? Number(input.feeBps)
+            : percent !== undefined
+              ? Number(percent) * 100
+              : Number.NaN;
+        const fee = await addFeeOverride(portfolio.id, property.id, {
+          effectiveFrom: String(input.effectiveFrom ?? ''),
+          feeBps,
+        });
+        reply.code(201).send({ fee });
       });
 
       // ---- F-27 settling account ---------------------------------------------
@@ -961,6 +989,11 @@ export async function registerApi(
             String(q.month ?? '')
           ),
         };
+      });
+
+      api.get('/statements/:id', async (request) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        return { detail: await statementDetail(portfolio.id, params(request).id!) };
       });
 
       api.post('/statements', async (request, reply) => {

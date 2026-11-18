@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { getJson, money, moneyCompact, sendJson } from './client.ts';
 import { useToast } from './toast.tsx';
 
@@ -38,6 +39,29 @@ interface Preview {
   netCents: number;
 }
 
+interface StatementDetailUi {
+  statementId: string;
+  propertyName: string;
+  periodStart: string;
+  status: string;
+  frozen: boolean;
+  totalCents: number;
+  lines: Array<{
+    id: string | null;
+    lineType: 'booking' | 'expense' | 'fee';
+    label: string;
+    amountCents: number;
+    entryCount: number;
+    entries: Array<{
+      id: string;
+      occurredOn: string;
+      description: string;
+      amountCents: number;
+      reversalOf: string | null;
+    }>;
+  }>;
+}
+
 interface PropertyOption {
   propertyId: string;
   propertyName: string;
@@ -65,6 +89,9 @@ export function Payouts() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<StatementDetailUi | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -99,6 +126,19 @@ export function Payouts() {
       .then((data) => setPreview(data.preview))
       .catch(() => setPreview(null));
   }, [propertyId, month]);
+
+  useEffect(() => {
+    if (!detailId) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    setDetail(null);
+    setDetailError(null);
+    getJson<{ detail: StatementDetailUi }>(`/api/statements/${detailId}`)
+      .then((data) => setDetail(data.detail))
+      .catch(() => setDetailError('Could not load that statement.'));
+  }, [detailId]);
 
   async function generate() {
     if (!propertyId) {
@@ -258,6 +298,14 @@ export function Payouts() {
                     </span>
                   </td>
                   <td>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-action="view"
+                      onClick={() => setDetailId(statement.id)}
+                    >
+                      View
+                    </button>
                     {statement.status === 'draft' ? (
                       <button
                         type="button"
@@ -285,6 +333,65 @@ export function Payouts() {
           </table>
         )}
       </section>
+
+      <Dialog.Root open={detailId !== null} onOpenChange={(open) => (open ? undefined : setDetailId(null))}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="sheet-overlay" />
+          <Dialog.Content className="sheet" aria-label="Statement detail" data-testid="statement-detail">
+            <Dialog.Title className="sheet-title">
+              {detail ? detail.propertyName : 'Loading statement…'}
+            </Dialog.Title>
+            <Dialog.Description className="sheet-sub">
+              {detail
+                ? `${monthName(detail.periodStart.slice(0, 7))} · ${detail.frozen ? 'frozen when approved' : 'live from the ledger'}`
+                : 'Reading the ledger'}
+            </Dialog.Description>
+
+            {detailError ? (
+              <p className="alert" role="alert">{detailError}</p>
+            ) : null}
+
+            {detail ? (
+              <>
+                <ul className="statement-lines" data-testid="statement-lines">
+                  {detail.lines.map((line, index) => (
+                    <details
+                      key={line.id ?? `${line.lineType}-${index}`}
+                      className="statement-line"
+                      data-testid="statement-line"
+                      data-line-type={line.lineType}
+                    >
+                      <summary>
+                        <span>{line.label}</span>
+                        <strong>{money(line.amountCents)}</strong>
+                      </summary>
+                      <ul className="line-entries" data-testid="line-entries">
+                        {line.entries.length === 0 ? (
+                          <li>Calculated from the statement — no ledger entry</li>
+                        ) : (
+                          line.entries.map((entry) => (
+                            <li key={entry.id} data-testid="ledger-entry">
+                              {entry.occurredOn} · {entry.description} · {money(entry.amountCents)}
+                              {entry.reversalOf ? ' · reversal' : ''}
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </details>
+                  ))}
+                </ul>
+                <p className="statement-total" data-testid="detail-total">
+                  Lines total <strong>{money(detail.totalCents)}</strong>
+                </p>
+              </>
+            ) : null}
+
+            <Dialog.Close asChild>
+              <button type="button" className="btn btn-block">Close</button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

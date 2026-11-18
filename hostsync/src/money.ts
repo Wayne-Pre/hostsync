@@ -13,7 +13,16 @@
  */
 import { query, queryOne, withTransaction } from './db.ts';
 import { ConflictError, NotFoundError, ValidationError } from './errors.ts';
+import { freezeLines } from './statementDetail.ts';
 import type { PoolClient } from 'pg';
+
+/** pg returns DATE as a local-midnight Date; toISOString() would shift it a day. */
+function pgDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export const EXPENSE_CATEGORIES = [
   'housekeeping',
@@ -73,7 +82,7 @@ function mapTransaction(row: TxRow): TransactionRow {
     // the UI shows is the number that was written.
     amountCents: amount,
     description: row.description,
-    occurredOn: row.occurred_on.toISOString().slice(0, 10),
+    occurredOn: pgDate(row.occurred_on),
     posted: row.posted,
     propertyId: row.property_id,
     propertyName: row.property_name,
@@ -537,8 +546,8 @@ function mapStatement(row: StatementDbRow): StatementRow {
     propertyId: row.property_id,
     propertyName: row.property_name,
     ownerName: row.owner_name,
-    periodStart: row.period_start.toISOString().slice(0, 10),
-    periodEnd: row.period_end.toISOString().slice(0, 10),
+    periodStart: pgDate(row.period_start),
+    periodEnd: pgDate(row.period_end),
     grossCents: Number(row.gross_cents),
     expensesCents: Number(row.expenses_cents),
     feeBps: Number(row.fee_bps),
@@ -570,6 +579,104 @@ export async function feeBpsFor(portfolioId: string, propertyId: string): Promis
   );
   if (!row) throw new NotFoundError('property');
   return row.fee_bps ?? row.default_fee_bps;
+}
+
+export interface FeeOverrideRow {
+  id: string;
+  effectiveFrom: string;
+  feeBps: number;
+}
+
+/** The fee in force for a statement period: latest override at or before its start. */
+export async function feeBpsForPeriod(
+  portfolioId: string,
+  propertyId: string,
+  periodStart: string
+): Promise<number> {
+  const row = await queryOne<{
+    override_bps: number | null;
+    current_bps: number | null;
+    default_bps: number;
+  }>(
+    `select (
+       select fee_bps from fee_override
+        where property_id = $1 and effective_from <= $3::date
+        order by effective_from desc limit 1
+     ) as override_bps,
+     p.management_fee_bps as current_bps,
+     pf.default_management_fee_bps as default_bps
+       from property p join portfolio pf on pf.id = p.portfolio_id
+      where p.id = $1 and pf.id = $2`,
+    [propertyId, portfolioId, periodStart]
+  );
+  if (!row) throw new NotFoundError('property');
+  return row.override_bps ?? row.current_bps ?? row.default_bps;
+}
+
+/** Fee history for a property, newest effective date first. */
+export async function listFeeOverrides(propertyId: string): Promise<FeeOverrideRow[]> {
+  const rows = await query<{ id: string; effective_from: Date; fee_bps: number }>(
+    `select id, effective_from, fee_bps from fee_override
+      where property_id = $1 order by effective_from desc`,
+    [propertyId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    effectiveFrom: pgDate(row.effective_from),
+    feeBps: row.fee_bps,
+  }));
+}
+
+/** Add an effective-dated override; applying a past one also updates the current rate. */
+export async function addFeeOverride(
+  portfolioId: string,
+  propertyId: string,
+  input: { effectiveFrom: string; feeBps: number }
+): Promise<FeeOverrideRow> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.effectiveFrom)) {
+    throw new ValidationError('effectiveFrom must be YYYY-MM-DD', 'effectiveFrom');
+  }
+  const feeBps = Math.round(Number(input.feeBps));
+  if (!Number.isFinite(feeBps) || feeBps < 0 || feeBps > 10_000) {
+    throw new ValidationError('fee must be between 0 and 100 percent', 'feeBps');
+  }
+
+  return withTransaction(async (client) => {
+    const property = await client.query<{ id: string }>(
+      'select id from property where id = $1 and portfolio_id = $2 and deleted_at is null',
+      [propertyId, portfolioId]
+    );
+    if (!property.rows[0]) throw new NotFoundError('property');
+
+    const duplicate = await client.query(
+      'select id from fee_override where property_id = $1 and effective_from = $2::date',
+      [propertyId, input.effectiveFrom]
+    );
+    if (duplicate.rows[0]) {
+      throw new ConflictError('a fee override already exists for that effective date');
+    }
+
+    const inserted = await client.query<{ id: string; effective_from: Date; fee_bps: number }>(
+      `insert into fee_override (property_id, effective_from, fee_bps)
+       values ($1, $2::date, $3) returning id, effective_from, fee_bps`,
+      [propertyId, input.effectiveFrom, feeBps]
+    );
+    const row = inserted.rows[0]!;
+
+    // An override that is already in force is the property's current rate too.
+    if (input.effectiveFrom <= new Date().toISOString().slice(0, 10)) {
+      await client.query('update property set management_fee_bps = $2 where id = $1', [
+        propertyId,
+        feeBps,
+      ]);
+    }
+
+    return {
+      id: row.id,
+      effectiveFrom: pgDate(row.effective_from),
+      feeBps: row.fee_bps,
+    };
+  });
 }
 
 export interface StatementPreview {
@@ -625,7 +732,7 @@ export async function previewStatement(
 
   const gross = Number(totals?.revenue ?? 0);
   const expenses = Number(totals?.expenses ?? 0);
-  const feeBps = await feeBpsFor(portfolioId, propertyId);
+  const feeBps = await feeBpsForPeriod(portfolioId, propertyId, bounds.start);
   const fee = Math.round((gross * feeBps) / 10_000);
 
   return {
@@ -723,41 +830,47 @@ export async function listStatements(portfolioId: string): Promise<{
   };
 }
 
-/** F-72 — draft → approved → paid, and nothing else. */
+/** F-72 — draft → approved → paid, and nothing else. Approval also freezes the detail lines. */
 export async function transitionStatement(
   portfolioId: string,
   statementId: string,
   to: 'approved' | 'paid',
   actorId: string
 ): Promise<StatementRow> {
-  const row = await queryOne<{ status: 'draft' | 'approved' | 'paid' }>(
-    `select status from statement where id = $1 and portfolio_id = $2`,
-    [statementId, portfolioId]
-  );
-  if (!row) throw new NotFoundError('statement');
+  return withTransaction(async (client) => {
+    const current = await client.query<{ status: 'draft' | 'approved' | 'paid' }>(
+      `select status from statement where id = $1 and portfolio_id = $2 for update`,
+      [statementId, portfolioId]
+    );
+    const row = current.rows[0];
+    if (!row) throw new NotFoundError('statement');
 
-  if (to === 'approved' && row.status !== 'draft') {
-    throw new ConflictError(`a ${row.status} statement cannot be approved`);
-  }
-  if (to === 'paid' && row.status !== 'approved') {
-    throw new ConflictError(`a ${row.status} statement cannot be paid`);
-  }
+    if (to === 'approved' && row.status !== 'draft') {
+      throw new ConflictError(`a ${row.status} statement cannot be approved`);
+    }
+    if (to === 'paid' && row.status !== 'approved') {
+      throw new ConflictError(`a ${row.status} statement cannot be paid`);
+    }
 
-  const updated = await queryOne<StatementDbRow>(
-    `update statement s
-        set status = $3,
-            approved_at = case when $3 = 'approved' then now() else s.approved_at end,
-            paid_at = case when $3 = 'paid' then now() else s.paid_at end,
-             approved_by = case when $3 = 'approved' then $4::uuid else s.approved_by end,
-             paid_by = case when $3 = 'paid' then $4::uuid else s.paid_by end
-       from property p
-      where s.id = $1 and s.portfolio_id = $2 and p.id = s.property_id
-      returning s.id, s.property_id, p.name as property_name, s.owner_name,
-                s.period_start, s.period_end, s.gross_cents, s.expenses_cents,
-                s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at,
-                s.approved_by, s.paid_by`,
-    [statementId, portfolioId, to, actorId]
-  );
-  if (!updated) throw new NotFoundError('statement');
-  return mapStatement(updated);
+    const result = await client.query<StatementDbRow>(
+      `update statement s
+          set status = $3,
+              approved_at = case when $3 = 'approved' then now() else s.approved_at end,
+              paid_at = case when $3 = 'paid' then now() else s.paid_at end,
+              approved_by = case when $3 = 'approved' then $4::uuid else s.approved_by end,
+              paid_by = case when $3 = 'paid' then $4::uuid else s.paid_by end
+         from property p
+        where s.id = $1 and s.portfolio_id = $2 and p.id = s.property_id
+        returning s.id, s.property_id, p.name as property_name, s.owner_name,
+                  s.period_start, s.period_end, s.gross_cents, s.expenses_cents,
+                  s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at,
+                  s.approved_by, s.paid_by`,
+      [statementId, portfolioId, to, actorId]
+    );
+    const updated = result.rows[0];
+    if (!updated) throw new NotFoundError('statement');
+
+    if (to === 'approved') await freezeLines(client, mapStatement(updated));
+    return mapStatement(updated);
+  });
 }
