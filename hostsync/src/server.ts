@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { buildApp } from './app.ts';
 
 /**
@@ -6,9 +7,23 @@ import { buildApp } from './app.ts';
  * Until now the app only existed as `buildApp()`, which tests drive in-memory
  * through `inject()`. Nothing ever called `listen()`, so there was no URL to
  * open. This is that URL.
+ *
+ * Free hosts do not offer a pre-deploy command, so the deploy itself runs the
+ * migrations when RUN_MIGRATIONS=true. Migrations are idempotent, and this is
+ * the same script the self-check uses locally.
  */
+if (process.env.RUN_MIGRATIONS === 'true') {
+  const migrated = spawnSync(process.execPath, ['scripts/migrate.ts'], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+  });
+  if (migrated.status !== 0) process.exit(migrated.status ?? 1);
+}
+
 const port = Number(process.env.PORT ?? 3000);
-const host = process.env.HOST ?? '127.0.0.1';
+// Cloud hosts route traffic to the container's public interface; binding only
+// to loopback makes the service look healthy locally but unreachable online.
+const host = process.env.HOST ?? '0.0.0.0';
 
 const app = buildApp({ logger: process.env.LOG_LEVEL !== 'silent' });
 

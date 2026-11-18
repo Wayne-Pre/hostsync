@@ -161,6 +161,7 @@ test('the View button opens the drill-down in the browser', async () => {
 
   const dialog = page.locator('[data-testid="statement-detail"]');
   await dialog.waitFor({ state: 'visible' });
+  await dialog.locator('[data-testid="statement-lines"]').waitFor({ state: 'visible' });
   assert.match(await dialog.locator('.sheet-sub').innerText(), /frozen when approved/);
 
   const lines = dialog.locator('[data-testid="statement-line"]');

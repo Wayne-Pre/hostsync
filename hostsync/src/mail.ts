@@ -45,7 +45,40 @@ export function createConsoleTransport(): MailTransport {
   };
 }
 
+/** HTTPS transport for hosts that block SMTP (Render free blocks 25/465/587). */
+export function createHttpTransport(): MailTransport {
+  const url = process.env.MAIL_API_URL ?? 'https://api.resend.com/emails';
+  const key = process.env.MAIL_API_KEY ?? '';
+  const from = process.env.MAIL_FROM ?? 'HostSync <onboarding@resend.dev>';
+  return {
+    kind: 'http',
+    async send(message) {
+      if (!key) throw new Error('MAIL_API_KEY is required when MAIL_TRANSPORT=http');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [message.to],
+          subject: message.subject,
+          text: message.text,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`mail API rejected the message: ${response.status} ${await response.text()}`);
+      }
+    },
+  };
+}
+
 export const captureTransport = createCaptureTransport();
 
 export const defaultTransport: MailTransport =
-  process.env.MAIL_TRANSPORT === 'console' ? createConsoleTransport() : captureTransport;
+  process.env.MAIL_TRANSPORT === 'http'
+    ? createHttpTransport()
+    : process.env.MAIL_TRANSPORT === 'console'
+      ? createConsoleTransport()
+      : captureTransport;

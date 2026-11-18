@@ -1,0 +1,39 @@
+# Render Blueprint (free plan) for HostSync.
+# Deploy this from the repository root; rootDir points at the Node app.
+# DATABASE_URL is a secret and is entered in the Render dashboard, never here.
+
+services:
+  - type: web
+    name: hostsync
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: hostsync
+    buildCommand: npm ci && npm run build:web
+    startCommand: node src/server.ts
+    healthCheckPath: /
+    # Push -> GitHub Actions self-check -> Render deploys only when it is green.
+    autoDeployTrigger: checksPass
+    # Add your subdomain in the Render dashboard (Settings -> Custom Domains),
+    # or uncomment and replace the line below before creating the Blueprint:
+    # domains:
+    #   - hostsync.example.com
+    envVars:
+      - key: DATABASE_URL
+        sync: false # paste the Neon pooled connection string in the dashboard
+      - key: RUN_MIGRATIONS
+        value: 'true'
+      - key: NODE_VERSION
+        value: '24.22.1'
+      - key: PG_POOL_MAX
+        value: '3'
+      - key: HOST
+        value: '0.0.0.0'
+      # Free email delivery (Resend: 100 messages/day). Add your verified
+      # sending domain in Resend, then set MAIL_FROM to an address on it.
+      - key: MAIL_TRANSPORT
+        value: http
+      - key: MAIL_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false

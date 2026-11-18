@@ -231,6 +231,8 @@ test('T-32/T-33/T-34/T-35 the sheet confirms, cancels, and a new booking prices 
   await page.locator(`[data-booking="${confirmedId}"]`).click();
   const sheet = page.locator('[data-testid="booking-sheet"]');
   await sheet.waitFor({ state: 'visible' });
+  // The sheet mounts before its GET completes; wait for the loaded reference.
+  await sheet.locator('[data-testid="sheet-reference"]').waitFor({ state: 'visible' });
   const sheetText = await sheet.innerText();
   assert.ok(sheetText.includes(money(2 * RATE)), 'gross and net are both on the sheet');
   assert.match(sheetText, /2 guests · 2 nights/);
