@@ -69,7 +69,9 @@ function mapTransaction(row: TxRow): TransactionRow {
     kind: row.kind,
     category: row.category,
     categoryLabel: CATEGORY_LABEL[row.category] ?? row.category.toUpperCase(),
-    amountCents: row.kind === 'credit' ? amount : -amount,
+    // The ledger stores direction in the sign (migration 011), so the number
+    // the UI shows is the number that was written.
+    amountCents: amount,
     description: row.description,
     occurredOn: row.occurred_on.toISOString().slice(0, 10),
     posted: row.posted,
@@ -102,59 +104,71 @@ interface BookingMoney {
 }
 
 /**
- * Keep the ledger row for a stay in step with its payment status.
+ * Keep the ledger in step with a stay's payment status — by appending, never
+ * editing.
  *
- * One row per booking (enforced by a unique index), so marking a stay paid
- * twice cannot double the revenue — it flips the same row to posted.
+ * The ledger already holds the truth for this booking: the difference between
+ * what should be booked (`paid` ? gross : 0) and what *is* booked is posted as
+ * one more entry. Marking a stay paid twice therefore appends nothing, and
+ * marking it unpaid again appends the opposite of the last entry, linked
+ * through `reversal_of`. The database trigger in migration 011 makes the
+ * alternative — an UPDATE — impossible.
  */
 export async function syncBookingCredit(
   client: PoolClient,
   booking: BookingMoney
 ): Promise<void> {
-  const posted = booking.paymentStatus === 'paid';
+  const earned = booking.paymentStatus === 'paid' ? booking.grossCents : 0;
 
-  // What the ledger believed before this change — the account moves by the
-  // difference, so marking a stay paid twice cannot credit it twice.
-  const previous = await client.query<{ id: string; posted: boolean; amount_cents: string | number }>(
-    `select id, posted, amount_cents from transaction
+  const posted = await client.query<{
+    amount: string | number;
+    last_id: string | null;
+    last_amount: string | number | null;
+  }>(
+    `select coalesce(sum(amount_cents), 0)::bigint as amount,
+            (array_agg(id order by created_at desc, id desc))[1] as last_id,
+            (array_agg(amount_cents order by created_at desc, id desc))[1] as last_amount
+       from transaction
       where booking_id = $1 and category = 'booking_revenue'`,
     [booking.id]
   );
-  const before = previous.rows[0];
+
+  const state = posted.rows[0];
+  const already = Number(state?.amount ?? 0);
+  const delta = earned - already;
+  if (delta === 0) return;
+
+  // A correction that exactly cancels the most recent entry *is* that entry's
+  // reversal, and says so. Any other delta is simply the next fact.
+  const lastAmount = Number(state?.last_amount ?? 0);
+  const reversalOf = delta < 0 && lastAmount === -delta ? (state?.last_id ?? null) : null;
+  const credit = delta > 0;
 
   const inserted = await client.query<{ id: string }>(
     `insert into transaction (
        portfolio_id, property_id, booking_id, account_id, kind, category,
-       amount_cents, description, posted, occurred_on
+       amount_cents, description, posted, occurred_on, reversal_of
      )
-     select p.portfolio_id, p.id, $1, p.id, 'credit', 'booking_revenue', $2, $3, $4, $5::date
+     select p.portfolio_id, p.id, $1, p.id, $2, 'booking_revenue', $3, $4, true, $5::date, $6::uuid
        from property p
-      where p.id = $6
-     on conflict (booking_id) where booking_id is not null and category = 'booking_revenue'
-     do update set amount_cents = excluded.amount_cents,
-                   posted = excluded.posted,
-                   description = excluded.description,
-                   occurred_on = excluded.occurred_on
+      where p.id = $7
      returning id`,
     [
       booking.id,
-      booking.grossCents,
-      `Stay ${booking.reference} — ${booking.guestName}`,
-      posted,
+      credit ? 'credit' : 'debit',
+      delta,
+      credit
+        ? `Stay ${booking.reference} — ${booking.guestName}`
+        : `Reversal — stay ${booking.reference} — ${booking.guestName}`,
       booking.checkIn,
+      reversalOf,
       booking.propertyId,
     ]
   );
+  if (!inserted.rows[0]) return;
 
-  const rowId = inserted.rows[0]?.id;
-  if (!rowId) return;
-
-  const wasPosted = before?.posted === true ? Number(before.amount_cents) : 0;
-  const isPosted = posted ? booking.grossCents : 0;
-  const delta = isPosted - wasPosted;
-  if (delta === 0) return;
-
-  // The settling account moves with the money: a posted credit lands in it.
+  // The settling account moves with the money: the signed delta is the same
+  // number the ledger just recorded.
   await client.query(
     `update property_account
         set balance_cents = balance_cents + $2, updated_at = now()
@@ -223,12 +237,17 @@ export interface FinancialKpis {
   outstandingCents: number;
 }
 
-/** F-62 — revenue is posted credits; outstanding is what has not been paid. */
+/**
+ * F-62 — revenue is posted booking money; outstanding is what has not been paid.
+ *
+ * Classification is by `category`, not by `kind`: a reversal of a booking
+ * credit is a debit, and it must reduce revenue, not inflate expenses.
+ */
 export async function financialKpis(portfolioId: string): Promise<FinancialKpis> {
   const month = await queryOne<{ revenue: string | number; expenses: string | number }>(
     `select
-       coalesce(sum(case when t.kind = 'credit' then t.amount_cents else 0 end), 0)::bigint as revenue,
-       coalesce(sum(case when t.kind = 'debit' then t.amount_cents else 0 end), 0)::bigint as expenses
+       coalesce(sum(case when t.category = 'booking_revenue' then t.amount_cents else 0 end), 0)::bigint as revenue,
+       coalesce(sum(case when t.category <> 'booking_revenue' then -t.amount_cents else 0 end), 0)::bigint as expenses
      from transaction t
     where t.portfolio_id = $1
       and t.posted
@@ -264,8 +283,8 @@ export async function monthlySeries(
 ): Promise<Array<{ month: string; revenueCents: number; expensesCents: number }>> {
   const rows = await query<{ month: string; revenue: string | number; expenses: string | number }>(
     `select to_char(date_trunc('month', t.occurred_on), 'YYYY-MM') as month,
-            coalesce(sum(case when t.kind = 'credit' then t.amount_cents else 0 end), 0)::bigint as revenue,
-            coalesce(sum(case when t.kind = 'debit' then t.amount_cents else 0 end), 0)::bigint as expenses
+            coalesce(sum(case when t.category = 'booking_revenue' then t.amount_cents else 0 end), 0)::bigint as revenue,
+            coalesce(sum(case when t.category <> 'booking_revenue' then -t.amount_cents else 0 end), 0)::bigint as expenses
        from transaction t
       where t.portfolio_id = $1
         and t.posted
@@ -303,8 +322,8 @@ export async function listTransactions(
     `${TX_SELECT}
       where t.portfolio_id = $1
         and ($2::text = 'all'
-             or ($2::text = 'revenue' and t.kind = 'credit')
-             or ($2::text = 'expenses' and t.kind = 'debit'))
+             or ($2::text = 'revenue' and t.category = 'booking_revenue' and t.kind = 'credit')
+             or ($2::text = 'expenses' and t.category <> 'booking_revenue' and t.kind = 'debit'))
       order by t.occurred_on desc, t.created_at desc
       limit 200`,
     [portfolioId, filter]
@@ -350,7 +369,7 @@ export async function recordExpense(input: RecordExpenseInput): Promise<Transact
          portfolio_id, property_id, account_id, kind, category,
          amount_cents, description, posted, occurred_on
        )
-       values ($1, $2, $2, 'debit', $3, $4, $5, true, $6::date)
+       values ($1, $2, $2, 'debit', $3, -(($4)::bigint), $5, true, $6::date)
        returning id`,
       [
         input.portfolioId,
@@ -396,9 +415,13 @@ export async function listAccounts(portfolioId: string): Promise<AccountCard[]> 
     verified: boolean;
     balance_cents: string | number;
   }>(
-    `select a.property_id, p.name as property_name, a.label, a.verified, a.balance_cents
-       from property_account a join property p on p.id = a.property_id
+    `select a.property_id, p.name as property_name, a.label, a.verified,
+            (a.opening_balance_cents + coalesce(sum(t.amount_cents), 0))::bigint as balance_cents
+       from property_account a
+       join property p on p.id = a.property_id
+       left join transaction t on t.property_id = a.property_id
       where p.portfolio_id = $1
+      group by a.property_id, p.name, a.label, a.verified, a.opening_balance_cents
       order by p.name`,
     [portfolioId]
   );
@@ -435,8 +458,8 @@ export async function propertyPerformance(portfolioId: string): Promise<Performa
     account_label: string | null;
   }>(
     `select p.id as property_id, p.name as property_name,
-            coalesce(sum(case when t.kind = 'credit' and t.posted then t.amount_cents else 0 end), 0)::bigint as revenue,
-            coalesce(sum(case when t.kind = 'debit' and t.posted then t.amount_cents else 0 end), 0)::bigint as expenses,
+            coalesce(sum(case when t.category = 'booking_revenue' and t.posted then t.amount_cents else 0 end), 0)::bigint as revenue,
+            coalesce(sum(case when t.category <> 'booking_revenue' and t.posted then -t.amount_cents else 0 end), 0)::bigint as expenses,
             p.management_fee_bps as fee_bps,
             pf.default_management_fee_bps as default_fee_bps,
             a.label as account_label
@@ -485,6 +508,8 @@ export interface StatementRow {
   status: 'draft' | 'approved' | 'paid';
   approvedAt: string | null;
   paidAt: string | null;
+  approvedBy: string | null;
+  paidBy: string | null;
 }
 
 interface StatementDbRow {
@@ -502,6 +527,8 @@ interface StatementDbRow {
   status: 'draft' | 'approved' | 'paid';
   approved_at: Date | null;
   paid_at: Date | null;
+  approved_by: string | null;
+  paid_by: string | null;
 }
 
 function mapStatement(row: StatementDbRow): StatementRow {
@@ -520,13 +547,16 @@ function mapStatement(row: StatementDbRow): StatementRow {
     status: row.status,
     approvedAt: row.approved_at ? row.approved_at.toISOString() : null,
     paidAt: row.paid_at ? row.paid_at.toISOString() : null,
+    approvedBy: row.approved_by,
+    paidBy: row.paid_by,
   };
 }
 
 const STATEMENT_SELECT = `
   select s.id, s.property_id, p.name as property_name, s.owner_name,
          s.period_start, s.period_end, s.gross_cents, s.expenses_cents,
-         s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at
+         s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at,
+         s.approved_by, s.paid_by
     from statement s join property p on p.id = s.property_id
 `;
 
@@ -584,8 +614,8 @@ export async function previewStatement(
 
   const totals = await queryOne<{ revenue: string | number; expenses: string | number }>(
     `select
-       coalesce(sum(case when t.kind = 'credit' and t.posted then t.amount_cents else 0 end), 0)::bigint as revenue,
-       coalesce(sum(case when t.kind = 'debit' and t.posted then t.amount_cents else 0 end), 0)::bigint as expenses
+       coalesce(sum(case when t.category = 'booking_revenue' and t.posted then t.amount_cents else 0 end), 0)::bigint as revenue,
+       coalesce(sum(case when t.category <> 'booking_revenue' and t.posted then -t.amount_cents else 0 end), 0)::bigint as expenses
      from transaction t
     where t.property_id = $1
       and t.occurred_on >= $2::date
@@ -632,9 +662,11 @@ export async function generateStatement(
                    fee_bps = excluded.fee_bps,
                    fee_cents = excluded.fee_cents,
                    net_cents = excluded.net_cents
+             where statement.status = 'draft'
      returning id, property_id, (select name from property where id = statement.property_id) as property_name,
                owner_name, period_start, period_end, gross_cents, expenses_cents,
-               fee_bps, fee_cents, net_cents, status, approved_at, paid_at`,
+               fee_bps, fee_cents, net_cents, status, approved_at, paid_at,
+               approved_by, paid_by`,
     [
       portfolioId,
       propertyId,
@@ -648,7 +680,22 @@ export async function generateStatement(
       preview.netCents,
     ]
   );
-  if (!row) throw new Error('statement insert returned no row');
+  if (!row) {
+    // The upsert refused a non-draft row, so this period has already been
+    // frozen. A paid statement is immutable; an approved one is a snapshot and
+    // cannot be silently recomputed either.
+    const existing = await queryOne<{ status: string }>(
+      `select status from statement
+        where property_id = $1 and period_start = $2::date and period_end = $3::date`,
+      [propertyId, preview.periodStart, preview.periodEnd]
+    );
+    if (existing) {
+      throw new ConflictError(
+        `a ${existing.status} statement cannot be modified; issue a new statement instead`
+      );
+    }
+    throw new Error('statement insert returned no row');
+  }
   return mapStatement(row);
 }
 
@@ -680,7 +727,8 @@ export async function listStatements(portfolioId: string): Promise<{
 export async function transitionStatement(
   portfolioId: string,
   statementId: string,
-  to: 'approved' | 'paid'
+  to: 'approved' | 'paid',
+  actorId: string
 ): Promise<StatementRow> {
   const row = await queryOne<{ status: 'draft' | 'approved' | 'paid' }>(
     `select status from statement where id = $1 and portfolio_id = $2`,
@@ -699,13 +747,16 @@ export async function transitionStatement(
     `update statement s
         set status = $3,
             approved_at = case when $3 = 'approved' then now() else s.approved_at end,
-            paid_at = case when $3 = 'paid' then now() else s.paid_at end
+            paid_at = case when $3 = 'paid' then now() else s.paid_at end,
+             approved_by = case when $3 = 'approved' then $4::uuid else s.approved_by end,
+             paid_by = case when $3 = 'paid' then $4::uuid else s.paid_by end
        from property p
       where s.id = $1 and s.portfolio_id = $2 and p.id = s.property_id
       returning s.id, s.property_id, p.name as property_name, s.owner_name,
                 s.period_start, s.period_end, s.gross_cents, s.expenses_cents,
-                s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at`,
-    [statementId, portfolioId, to]
+                s.fee_bps, s.fee_cents, s.net_cents, s.status, s.approved_at, s.paid_at,
+                s.approved_by, s.paid_by`,
+    [statementId, portfolioId, to, actorId]
   );
   if (!updated) throw new NotFoundError('statement');
   return mapStatement(updated);

@@ -55,6 +55,7 @@ import {
   setChannelState,
   updatePortfolioSettings,
 } from './settings.ts';
+import { reconcilePortfolio } from './reconcile.ts';
 import type { FetchLike } from './ics/sync.ts';
 import type { Property } from './properties.ts';
 import { rangeLabel } from '../shared/calendarLabel.ts';
@@ -916,6 +917,11 @@ export async function registerApi(
         return { properties: await propertyPerformance(portfolio.id) };
       });
 
+      api.get('/financials/reconciliation', async (request) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        return { reconciliation: await reconcilePortfolio(portfolio.id) };
+      });
+
       api.get('/transactions', async (request) => {
         const portfolio = await requirePortfolio(request.session!.user.id);
         const filter = String(queryParams(request).filter ?? 'all');
@@ -970,12 +976,12 @@ export async function registerApi(
 
       api.post('/statements/:id/approve', async (request) => {
         const portfolio = await requirePortfolio(request.session!.user.id);
-        return { statement: await transitionStatement(portfolio.id, params(request).id!, 'approved') };
+        return { statement: await transitionStatement(portfolio.id, params(request).id!, 'approved', request.session!.user.id) };
       });
 
       api.post('/statements/:id/pay', async (request) => {
         const portfolio = await requirePortfolio(request.session!.user.id);
-        return { statement: await transitionStatement(portfolio.id, params(request).id!, 'paid') };
+        return { statement: await transitionStatement(portfolio.id, params(request).id!, 'paid', request.session!.user.id) };
       });
 
       // ---- F-33 booking payment ----------------------------------------------

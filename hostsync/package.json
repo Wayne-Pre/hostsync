@@ -14,7 +14,8 @@
     "start": "node src/server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/selfcheck.mjs --tests-only",
-    "selfcheck": "node scripts/selfcheck.mjs"
+    "selfcheck": "node scripts/selfcheck.mjs",
+    "reconcile": "node scripts/reconcile.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

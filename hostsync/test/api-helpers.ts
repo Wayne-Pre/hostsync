@@ -120,15 +120,28 @@ export async function createBooking(
 }
 
 export async function deleteUser(email: string): Promise<void> {
-  await pool.query(
-    `delete from booking
-      where property_id in (
-        select p.id from property p
-          join portfolio pf on pf.id = p.portfolio_id
-          join app_user u on u.id = pf.owner_id
-         where u.email = $1
-      )`,
-    [email]
-  );
-  await pool.query('delete from app_user where email = $1', [email]);
+  // The ledger is append-only (migration 011). Account erasure is the one
+  // caller allowed to remove rows, and it says so explicitly in the session.
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query("set local hostsync.ledger_purge = 'on'");
+    await client.query(
+      `delete from booking
+        where property_id in (
+          select p.id from property p
+            join portfolio pf on pf.id = p.portfolio_id
+            join app_user u on u.id = pf.owner_id
+           where u.email = $1
+        )`,
+      [email]
+    );
+    await client.query('delete from app_user where email = $1', [email]);
+    await client.query('commit');
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
