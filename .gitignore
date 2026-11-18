@@ -1,0 +1,10 @@
+# dependencies and build output
+node_modules/
+hostsync/public/
+*.log
+.env
+.env.*
+
+# unrelated files that happen to share this OneDrive folder
+*.apk
+TVBox_*
