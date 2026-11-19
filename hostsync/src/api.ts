@@ -23,7 +23,7 @@ import { syncPortfolioFeeds, syncPropertyFeeds } from './ics/sync.ts';
 import { loadBoard } from './operations.ts';
 import { createTask, moveTask, setChecklistItem } from './tasks.ts';
 import { addMember, listAssignableTeam, listTeam, setMemberActive } from './team.ts';
-import { listThreads, getThread, reply as sendGuestReply } from './inbox.ts';
+import { listThreads, getThread, createConversation, REPLY_CHANNELS, reply as sendGuestReply } from './inbox.ts';
 import {
   getSettings as getReviewSettings,
   listRequests,
@@ -59,6 +59,7 @@ import {
 } from './settings.ts';
 import { reconcilePortfolio } from './reconcile.ts';
 import { statementDetail } from './statementDetail.ts';
+import { optionalEmail } from './validation.ts';
 import type { FetchLike } from './ics/sync.ts';
 import type { Property } from './properties.ts';
 import { rangeLabel } from '../shared/calendarLabel.ts';
@@ -829,6 +830,49 @@ export async function registerApi(
       api.get('/inbox', async (request) => {
         const portfolio = await requirePortfolio(request.session!.user.id);
         return { threads: await listThreads(portfolio.id) };
+      });
+
+      // F-54 — "Email a guest": create the outbound thread, then send its first message.
+      api.post('/inbox', async (request, reply) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const input = body(request);
+        const guestName = String(input.guestName ?? '').trim();
+        if (!guestName) throw new ValidationError('guest name is required', 'guestName');
+
+        const channel = String(input.channel ?? 'email');
+        if (!(REPLY_CHANNELS as readonly string[]).includes(channel)) {
+          throw new ValidationError(`channel must be one of: ${REPLY_CHANNELS.join(', ')}`, 'channel');
+        }
+        const guestEmail = optionalEmail(input.guestEmail, 'guestEmail');
+        if (channel === 'email' && !guestEmail) {
+          throw new ValidationError('an email address is required to email a guest', 'guestEmail');
+        }
+
+        let propertyId: string | null = null;
+        if (input.propertyId !== undefined && input.propertyId !== null && input.propertyId !== '') {
+          propertyId = (await requireProperty(String(input.propertyId), portfolio.id)).id;
+        }
+
+        const conversationId = await createConversation({
+          portfolioId: portfolio.id,
+          propertyId,
+          bookingId: null,
+          guestName,
+          guestEmail,
+          channel,
+          subject: String(input.subject ?? '').trim() || null,
+        });
+
+        const first = String(input.body ?? '').trim();
+        const message = first
+          ? await sendGuestReply(
+              portfolio.id,
+              conversationId,
+              { body: first, channel },
+              apiOptions.mailer ?? defaultTransport
+            )
+          : null;
+        reply.code(201).send({ conversationId, message });
       });
 
       api.get('/inbox/:id', async (request) => {

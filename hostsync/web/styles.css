@@ -1273,6 +1273,34 @@ input:focus-visible {
   align-items: start;
 }
 
+.threads-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compose-form {
+  padding: 12px;
+  border: 1px solid var(--line, #2b2b2b);
+  border-radius: 10px;
+}
+
+.photo-preview,
+.prop-photo {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.prop-photo {
+  max-width: none;
+  margin: 0 0 12px;
+}
+
 .thread-list {
   display: flex;
   flex-direction: column;

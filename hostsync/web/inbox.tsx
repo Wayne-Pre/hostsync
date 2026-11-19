@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { getJson, sendJson } from './client.ts';
 import { useToast } from './toast.tsx';
 
@@ -46,6 +47,16 @@ export function Inbox() {
   const [channel, setChannel] = useState('email');
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [properties, setProperties] = useState<Array<{ propertyId: string; propertyName: string }>>([]);
+  const [compose, setCompose] = useState({
+    guestName: '',
+    guestEmail: '',
+    propertyId: '',
+    channel: 'email',
+    subject: '',
+    body: '',
+  });
 
   const load = useCallback(async () => {
     try {
@@ -95,6 +106,48 @@ export function Inbox() {
     }
   }
 
+  async function openCompose() {
+    try {
+      const data = await getJson<{
+        properties: Array<{ id: string; name: string }>;
+      }>('/api/properties');
+      setProperties(
+        data.properties.map((p) => ({ propertyId: p.id, propertyName: p.name }))
+      );
+      setCompose({ guestName: '', guestEmail: '', propertyId: '', channel: 'email', subject: '', body: '' });
+      setComposing(true);
+    } catch {
+      toast('Could not load your properties', 'error');
+    }
+  }
+
+  async function createThread(event: FormEvent) {
+    event.preventDefault();
+    setSending(true);
+    try {
+      const result = await sendJson<{ conversationId: string; message: Message | null }>(
+        'POST',
+        '/api/inbox',
+        {
+          guestName: compose.guestName,
+          guestEmail: compose.guestEmail,
+          propertyId: compose.propertyId || null,
+          channel: compose.channel,
+          subject: compose.subject,
+          body: compose.body,
+        }
+      );
+      toast(result.message?.delivery === 'sent' ? 'Email sent' : 'Conversation created');
+      setComposing(false);
+      await load();
+      if (result.conversationId) setOpenId(result.conversationId);
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : 'Could not create that conversation', 'error');
+    } finally {
+      setSending(false);
+    }
+  }
+
   if (error) {
     return (
       <p className="alert" role="alert">
@@ -107,7 +160,60 @@ export function Inbox() {
 
   return (
     <div className="inbox-layout">
-      <section className="thread-list" aria-label="Conversations" data-testid="thread-list">
+      <div className="threads-pane">
+        <button type="button" className="btn btn-primary btn-block" data-testid="new-conversation" onClick={openCompose}>
+          Email a guest
+        </button>
+        {composing ? (
+          <form className="form compose-form" data-testid="compose-form" onSubmit={createThread}>
+            <div className="field">
+              <label htmlFor="compose-guest">Guest name</label>
+              <input id="compose-guest" required value={compose.guestName}
+                onChange={(e) => setCompose({ ...compose, guestName: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="compose-email">Guest email</label>
+              <input id="compose-email" type="email" value={compose.guestEmail}
+                onChange={(e) => setCompose({ ...compose, guestEmail: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="compose-property">Property</label>
+              <select id="compose-property" value={compose.propertyId}
+                onChange={(e) => setCompose({ ...compose, propertyId: e.target.value })}>
+                <option value="">No property</option>
+                {properties.map((p) => (
+                  <option key={p.propertyId} value={p.propertyId}>{p.propertyName}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="compose-channel">Channel</label>
+              <select id="compose-channel" value={compose.channel}
+                onChange={(e) => setCompose({ ...compose, channel: e.target.value })}>
+                {CHANNEL_OPTIONS.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="compose-subject">Subject</label>
+              <input id="compose-subject" value={compose.subject}
+                onChange={(e) => setCompose({ ...compose, subject: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="compose-body">First message</label>
+              <textarea id="compose-body" rows={3} value={compose.body}
+                onChange={(e) => setCompose({ ...compose, body: e.target.value })} />
+            </div>
+            <div className="composer-row">
+              <button className="btn btn-primary" type="submit" disabled={sending} data-testid="compose-submit">
+                {sending ? 'Creating…' : 'Create conversation'}
+              </button>
+              <button className="btn" type="button" onClick={() => setComposing(false)}>Cancel</button>
+            </div>
+          </form>
+        ) : null}
+        <section className="thread-list" aria-label="Conversations" data-testid="thread-list">
         {threads.length === 0 ? (
           <p className="board-empty">No conversations yet.</p>
         ) : (
@@ -135,6 +241,7 @@ export function Inbox() {
           ))
         )}
       </section>
+      </div>
 
       <section className="conversation" aria-label="Conversation">
         {openId === null ? (

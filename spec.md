@@ -809,6 +809,8 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 | Statement freeze | **Done** — migration 013 checks both statement equations, stores the approving/paying actor, and seals paid rows; regeneration of a frozen period is a 409 |
 | Reconciliation | **Done** — `src/reconcile.ts` + `GET /api/financials/reconciliation` + `npm run reconcile` compare bookings, ledger entries, statements and account balances, reporting zero drift on the seed set |
 | Onboarding screen | **Done** — F-10 now has a real screen: a verified user without a workspace is redirected from every app page to `/onboarding`, creates the portfolio there, and the dashboard then shows an honest empty checklist; data is in Postgres so it survives re-login |
+| Email a guest on screen | **Done** — F-54's "new outbound thread" is now a real "Email a guest" button: property, guest, address, channel and first message create the thread, email is delivered, and WhatsApp/SMS stay honestly recorded-only |
+| Local photo upload | **Done** — the property form accepts a photo from the device, resizes it in the browser and stores the compressed image in Postgres; the card renders it. A URL still works. Free hosts have no disk, so nothing is written to the filesystem |
 | Statement detail | **Done** — migration 014 freezes line items at approval, `GET /api/statements/:id` exposes them with their ledger entries, and the payouts screen's "View" button opens the drill-down dialog |
 | Fee history | **Done** — migration 015 stores effective-dated fee overrides; new statements use the bps in force at their period start, and a backdated change cannot rewrite a settled statement |
 | pg DATE handling | **Fixed** — `pg` returns `DATE` as local midnight; date-only fields are now formatted from local components so a statement's period and a fee's effective date cannot shift a day in UTC+3 |
@@ -829,13 +831,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 157
-ℹ pass 157
+ℹ tests 161
+ℹ pass 161
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 80 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 84 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 

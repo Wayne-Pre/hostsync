@@ -126,6 +126,17 @@ export function optionalEmail(value: unknown, field: string): string | null {
  * arbitrary remote URLs — the original accepted any pasted URL (§6.1).
  */
 export function optionalPhotoKey(value: unknown): string | null {
+  // A local upload arrives as a compressed data URL. Free hosts have no
+  // persistent disk, so the image lives in Postgres with the property record.
+  if (typeof value === 'string' && value.startsWith('data:image/')) {
+    if (value.length > 1_400_000) {
+      throw new ValidationError('that image is too large — choose a smaller one', 'photoKey');
+    }
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) {
+      throw new ValidationError('photo must be a JPEG, PNG or WebP image', 'photoKey');
+    }
+    return value;
+  }
   const raw = optionalString(value, 'photoKey', 512);
   if (raw === null) return null;
   if (raw.startsWith('https://')) return raw;

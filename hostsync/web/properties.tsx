@@ -57,7 +57,34 @@ const EMPTY_FORM = {
   managementFeePercent: '18',
   channels: ['airbnb'] as string[],
   photoUrl: '',
+  photoData: '',
 };
+
+function readPhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that image'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('That file is not an image'));
+      image.onload = () => {
+        const scale = Math.min(1, 1000 / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('This browser cannot resize that image'));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.78));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export function Properties() {
   const toast = useToast();
@@ -113,6 +140,7 @@ export function Properties() {
       managementFeePercent: String((card.managementFeeBps ?? 1800) / 100),
       channels: card.channels.length > 0 ? card.channels : ['airbnb'],
       photoUrl: card.photoKey ?? '',
+      photoData: '',
     });
     setShowForm(true);
   }
@@ -134,7 +162,7 @@ export function Properties() {
       ownerEmail: form.ownerEmail,
       managementFeePercent: Number(form.managementFeePercent),
       channels: form.channels,
-      photoKey: form.photoUrl || null,
+      photoKey: form.photoData || form.photoUrl || null,
     };
 
     try {
@@ -241,6 +269,9 @@ export function Properties() {
         <div className="prop-grid" data-testid="property-cards">
           {cards.map((card) => (
             <article className="prop-card" key={card.id} data-property={card.id}>
+              {card.photoKey && (card.photoKey.startsWith('data:') || card.photoKey.startsWith('https://')) ? (
+                <img className="prop-photo" src={card.photoKey} alt={card.name} data-testid="property-photo" />
+              ) : null}
               <header className="prop-head">
                 <div>
                   <h3>{card.name}</h3>
@@ -313,7 +344,7 @@ export function Properties() {
       )}
 
       {showForm ? (
-        <section className="panel" aria-labelledby="property-form-title">
+        <section className="panel" aria-labelledby="property-form-title" data-testid="property-form">
           <header className="panel-head">
             <h2 id="property-form-title">{editing ? `Edit ${editing.name}` : 'Add a property'}</h2>
             <p>Everything the card shows comes from these fields.</p>
@@ -442,12 +473,39 @@ export function Properties() {
               />
             </div>
             <div className="field">
-              <label htmlFor="p-photo">Photo URL</label>
+              <label htmlFor="p-photo">Photo URL (optional)</label>
               <input
                 id="p-photo"
                 value={form.photoUrl}
                 onChange={(event) => setForm({ ...form, photoUrl: event.target.value })}
               />
+            </div>
+            <div className="field">
+              <label htmlFor="p-photo-file">Or choose a photo from your device</label>
+              <input
+                id="p-photo-file"
+                data-testid="photo-file"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const data = await readPhoto(file);
+                    setForm((current) => ({ ...current, photoData: data }));
+                  } catch (caught) {
+                    toast(caught instanceof Error ? caught.message : 'Could not read that image', 'error');
+                  }
+                }}
+              />
+              {form.photoData ? (
+                <img
+                  className="photo-preview"
+                  data-testid="photo-preview"
+                  src={form.photoData}
+                  alt="Selected property"
+                />
+              ) : null}
             </div>
             <div className="field">
               <label htmlFor="p-channels">Channels</label>

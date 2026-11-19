@@ -129,9 +129,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           HostSync
         </a>
         <NavLinks pathname={pathname} />
-        <div className="sidebar-foot">
-          <span>Stage 1 · one calendar that holds</span>
-        </div>
       </aside>
 
       <div className="main">

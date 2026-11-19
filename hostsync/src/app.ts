@@ -92,7 +92,7 @@ async function requireSession(
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const mailer = options.mailer ?? defaultTransport;
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
 
   app.register(cookie);
 
