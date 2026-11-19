@@ -27,6 +27,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5433/hostsync
+      TZ: Africa/Nairobi
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
