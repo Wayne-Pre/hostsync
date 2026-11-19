@@ -2,6 +2,7 @@ import { ToastProvider } from './toast.tsx';
 import { AppShell } from './shell.tsx';
 import { NAV } from './nav.ts';
 import { Landing } from './landing.tsx';
+import { Onboarding } from './onboarding.tsx';
 import { ForgotPassword, Login, Register, ResetPassword, Verify } from './auth.tsx';
 import { Dashboard } from './dashboard.tsx';
 import { CalendarScreen } from './calendar.tsx';
@@ -31,6 +32,7 @@ export function App() {
       {path === '/verify' ? <Verify /> : null}
       {path === '/forgot-password' ? <ForgotPassword /> : null}
       {path === '/reset-password' ? <ResetPassword /> : null}
+      {path === '/onboarding' ? <Onboarding /> : null}
       {isAppPage(path) ? <AppShell>{screenFor(path)}</AppShell> : null}
     </ToastProvider>
   );

@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import { AppError } from './errors.ts';
 import type { MailTransport } from './mail.ts';
 import { defaultTransport } from './mail.ts';
+import { queryOne } from './db.ts';
 import { registerApi } from './api.ts';
 import type { FetchLike } from './ics/sync.ts';
 import {
@@ -30,6 +31,7 @@ export const PUBLIC_PAGES = [
   '/verify',
   '/forgot-password',
   '/reset-password',
+  '/onboarding',
 ] as const;
 
 /**
@@ -224,6 +226,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const session = await currentSession(request);
       if (!session) {
         reply.code(302).header('location', '/login').send();
+        return;
+      }
+      // A signed-in user without a portfolio has no data to load. Send them to
+      // onboarding before any screen can fire ten failing API calls.
+      const portfolio = await queryOne<{ id: string }>(
+        'select id from portfolio where owner_id = $1 order by created_at limit 1',
+        [session.user.id]
+      );
+      if (!portfolio) {
+        reply.code(302).header('location', '/onboarding').send();
         return;
       }
       sendShell(reply);

@@ -319,6 +319,19 @@ test('T-09 guard: /dashboard redirects anonymous visitors; logout kills the cook
   const email = freshEmail('guard');
   const cookie = await registerAndVerify(email);
 
+  // A verified account still needs a workspace before any app screen loads.
+  const needsWorkspace = await app.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+  assert.equal(needsWorkspace.statusCode, 302);
+  assert.equal(needsWorkspace.headers.location, '/onboarding');
+
+  const onboarded = await app.inject({
+    method: 'POST',
+    url: '/onboarding',
+    headers: { cookie },
+    payload: { portfolioName: 'Guard Portfolio' },
+  });
+  assert.equal(onboarded.statusCode, 200, onboarded.body);
+
   const allowed = await app.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
   assert.equal(allowed.statusCode, 200);
   assert.match(String(allowed.headers['content-type']), /text\/html/);

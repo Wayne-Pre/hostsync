@@ -121,8 +121,8 @@ test('a payment flip appends a reversal, and the reversal nets to zero', async (
     propertyId,
     guestName: 'Reversal Guest',
     channel: 'direct',
-    checkIn: addDays(todayUTC(), 12),
-    checkOut: addDays(todayUTC(), 14),
+    checkIn: todayUTC(),
+    checkOut: addDays(todayUTC(), 2),
     guests: 2,
   });
   const id = booking.id;

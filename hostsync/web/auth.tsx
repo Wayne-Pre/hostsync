@@ -11,7 +11,7 @@ import { useToast } from './toast.tsx';
  * in a live region rather than a floating tooltip.
  */
 
-function AuthFrame({
+export function AuthFrame({
   title,
   subtitle,
   children,
@@ -38,7 +38,7 @@ function AuthFrame({
   );
 }
 
-function FormError({ message }: { message: string | null }) {
+export function FormError({ message }: { message: string | null }) {
   return (
     <p className="alert" role="alert" aria-live="assertive" data-testid="form-error">
       {message ?? ''}
@@ -212,7 +212,7 @@ export function Verify() {
     try {
       await sendJson('POST', '/auth/verify', { email, code });
       toast('Email verified');
-      window.location.assign('/dashboard');
+      window.location.assign('/onboarding');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'That code did not work');
     } finally {
