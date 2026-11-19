@@ -244,7 +244,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   // ---- built assets --------------------------------------------------------
   app.get('/assets/*', async (request, reply) => {
-    if (!sendAsset(request.url, reply)) {
+    if (!sendAsset(request.url, reply, request)) {
       reply.code(404).send({ error: 'not_found', message: 'no such asset' });
     }
   });

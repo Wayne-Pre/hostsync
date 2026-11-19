@@ -109,13 +109,21 @@ test('the uploaded HostSync compass logo is served and used as the brand', async
 
   const asset = await page.evaluate(async () => {
     const response = await fetch('/assets/logo.jpeg');
+    const etag = response.headers.get('etag');
+    const again = await fetch('/assets/logo.jpeg', {
+      headers: { 'if-none-match': etag ?? '' },
+    });
     return {
       status: response.status,
       type: response.headers.get('content-type'),
       bytes: (await response.arrayBuffer()).byteLength,
+      etag,
+      revalidated: again.status,
     };
   });
   assert.equal(asset.status, 200);
   assert.match(asset.type ?? '', /image\/jpeg/);
   assert.ok(asset.bytes > 10_000, 'the real image is served, not a placeholder');
+  assert.ok(asset.etag, 'static assets carry a validator');
+  assert.equal(asset.revalidated, 304, 'a repeat visit reuses the cached copy');
 });

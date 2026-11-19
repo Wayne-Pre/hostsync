@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 /**
  * Serves the built React bundle.
@@ -66,22 +66,33 @@ const ASSET_CACHE = new Set(['/assets/app.js', '/assets/app.css', '/assets/logo.
  * Serve one built asset. Returns false (and sends nothing) when the path is not
  * a real file inside `public/`, so the caller can answer 404.
  *
- * Only the two bundle files exist, and they are served `no-store`: a stale
- * bundle after a rebuild is a correctness bug, and hashed filenames are not
- * worth the extra build step on this machine.
+ * The bundle is validated with an ETag instead of `no-store`: a fresh deploy
+ * gets a new mtime and therefore a new tag, but a normal navigation reuses the
+ * copy already in the browser (a cheap 304) instead of re-downloading 400 KB.
  */
-export function sendAsset(pathname: string, reply: FastifyReply): boolean {
+export function sendAsset(pathname: string, reply: FastifyReply, request?: FastifyRequest): boolean {
   const path = pathname.split('?')[0] ?? '';
   if (!ASSET_CACHE.has(path)) return false;
 
   const file = resolve(PUBLIC_DIR, path.replace(/^\/+/, ''));
   if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + sep)) return false;
-  if (!existsSync(file) || !statSync(file).isFile()) return false;
+  if (!existsSync(file)) return false;
+  const stats = statSync(file);
+  if (!stats.isFile()) return false;
+
+  const etag = `"${stats.size}-${Math.floor(stats.mtimeMs)}"`;
+  reply
+    .header('etag', etag)
+    .header('cache-control', 'public, max-age=0, must-revalidate');
+
+  if (request?.headers['if-none-match'] === etag) {
+    reply.code(304).send();
+    return true;
+  }
 
   reply
     .code(200)
     .header('content-type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
-    .header('cache-control', 'no-store')
     .send(readFileSync(file));
   return true;
 }
