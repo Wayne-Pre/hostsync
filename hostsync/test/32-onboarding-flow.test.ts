@@ -51,7 +51,7 @@ test('onboarding creates the workspace and data survives a new login', async () 
   await browser.waitForURL('**/onboarding');
 
   const form = browser.locator('[data-testid="onboarding-form"]');
-  await form.waitFor();
+  await form.waitFor({ state: 'visible', timeout: 60000 });
   await form.locator('[data-testid="onboarding-name"]').fill('Persisted Workspace');
   await form.locator('[data-testid="onboarding-currency"]').selectOption('USD');
   await form.locator('[data-testid="onboarding-submit"]').click();

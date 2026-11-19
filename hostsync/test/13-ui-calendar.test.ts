@@ -56,6 +56,11 @@ test('T-38 Next week moves the range by exactly seven days and refetches; Today 
     true,
     'a new calendar request was made, not a cached re-render'
   );
+  // The grid attribute updates a tick before the label; wait for the label too.
+  await page.waitForFunction(
+    `(before) => document.querySelector('[data-testid="range-label"]')?.textContent?.trim() !== before`,
+    labelBefore
+  );
   const labelAfter = (await page.locator('[data-testid="range-label"]').innerText()).trim();
   assert.notEqual(labelAfter, labelBefore, 'the range label moved with the window');
 
