@@ -21,7 +21,7 @@ import {
 } from './properties.ts';
 import { syncPortfolioFeeds, syncPropertyFeeds } from './ics/sync.ts';
 import { loadBoard } from './operations.ts';
-import { createTask, moveTask, setChecklistItem } from './tasks.ts';
+import { assignTask, createTask, moveTask, setChecklistItem } from './tasks.ts';
 import { addMember, listAssignableTeam, listTeam, setMemberActive } from './team.ts';
 import { listThreads, getThread, createConversation, REPLY_CHANNELS, reply as sendGuestReply } from './inbox.ts';
 import {
@@ -810,6 +810,16 @@ export async function registerApi(
       api.post('/tasks/:id/reopen', async (request) => {
         const portfolio = await requirePortfolio(request.session!.user.id);
         const status = await moveTask(params(request).id!, portfolio.id, 'reopen');
+        return { status };
+      });
+
+      // ---- assign a task ------------------------------------------------------
+      api.post('/tasks/:id/assign', async (request) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const input = body(request);
+        const assignee =
+          typeof input.assignee === 'string' && input.assignee ? input.assignee : null;
+        const status = await assignTask(params(request).id!, portfolio.id, assignee);
         return { status };
       });
 

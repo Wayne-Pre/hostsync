@@ -154,6 +154,41 @@ export async function moveTask(
   return updated.status;
 }
 
+/**
+ * Hand a task to a team member (or back to the unassigned column).
+ *
+ * The board's promise is that work always has an honest owner, so the only
+ * legal values are `null` and the name of somebody in this portfolio's roster.
+ */
+export async function assignTask(
+  taskId: string,
+  portfolioId: string,
+  assignee: string | null
+): Promise<TaskStatus> {
+  await ownedTask(taskId, portfolioId);
+
+  if (assignee !== null) {
+    const member = await queryOne<{ id: string }>(
+      'select id from team_member where portfolio_id = $1 and name = $2',
+      [portfolioId, assignee]
+    );
+    if (!member) {
+      throw new ValidationError('assignee must be a member of this portfolio', 'assignee');
+    }
+  }
+
+  const updated = await queryOne<{ status: TaskStatus }>(
+    `update task t
+        set assignee = $3, updated_at = now()
+       from property p
+      where t.id = $1 and p.id = t.property_id and p.portfolio_id = $2
+      returning t.status`,
+    [taskId, portfolioId, assignee]
+  );
+  if (!updated) throw new NotFoundError('task');
+  return updated.status;
+}
+
 /** F-49 — tick or untick one checklist item. */
 export async function setChecklistItem(
   taskId: string,

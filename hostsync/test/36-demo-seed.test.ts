@@ -58,5 +58,19 @@ test('the seeded demo account has a working dashboard and ledger', async () => {
   const report = reconciliation.json() as { reconciliation: { balanced: boolean; drift: unknown[] } };
   assert.equal(report.reconciliation.balanced, true, JSON.stringify(report.reconciliation.drift));
 
+  const tasks = await app.inject({ method: 'GET', url: '/api/tasks', headers });
+  assert.equal(tasks.statusCode, 200, tasks.body);
+  const board = tasks.json() as {
+    counters: { unassigned: number; needsSomeone: number };
+    columns: Array<{ key: string; count: number; tasks: Array<{ title: string; kind: string; assignee: string | null }> }>;
+  };
+  assert.ok(board.counters.unassigned >= 1, 'the demo leaves cleaning work unassigned so it can be handed out');
+  assert.ok(board.counters.needsSomeone >= 1, 'the demo shows work held by a paused member');
+  const unassigned = board.columns.find((column) => column.key === 'unassigned');
+  assert.ok(unassigned && unassigned.count >= 1, 'the UNASSIGNED column has a first row');
+  assert.match(unassigned!.tasks[0]!.title, /Turnover/, 'the first row is a cleaning turnover');
+  assert.equal(unassigned!.tasks[0]!.assignee, null, 'the first row is unscheduled');
+  assert.equal(unassigned!.tasks[0]!.kind, 'turnover');
+
   await app.close();
 });

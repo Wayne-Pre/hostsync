@@ -82,8 +82,9 @@ async function main() {
     const people = [
       ['Mercy Wanjiru', 'manager', '+254 701 000 001', 120_000, 98, true],
       ['Otieno Kefa', 'cleaner', '+254 701 000 002', 45_000, 95, true],
-      ['Faith Muthoni', 'cleaner', '+254 701 000 003', 45_000, 91, false],
-      ['Amina Yusuf', 'front_desk', '+254 701 000 004', 60_000, 97, true],
+      ['Faith Muthoni', 'cleaner', '+254 701 000 003', 45_000, 91, true],
+      ['Samuel Kiptoo', 'cleaner', '+254 701 000 004', 48_000, 93, true],
+      ['Amina Yusuf', 'front_desk', '+254 701 000 005', 60_000, 97, false],
     ];
     for (const [name, role, phone, rate, reliability, active] of people) {
       await client.query(
@@ -181,24 +182,34 @@ async function main() {
           );
         }
 
-        if (offset > 0) {
-          const t = await client.query(
-            `insert into task (property_id, booking_id, kind, title, window_start, window_end, status, assignee, expected_cost_cents)
-             select $1, $2, 'turnover', $3,
-                    ($4::date + p.checkout_time) at time zone p.timezone,
-                    ($4::date + p.checkin_time) at time zone p.timezone,
-                    'scheduled', $5, 350000
-               from property p where p.id = $1
-             returning id`,
-            [propertyId, b.rows[0].id, `Turnover — ${guest}`, start,
-              ['Otieno Kefa', 'Faith Muthoni', null][j % 3]]
+        // Every stay implies turnover work. The first upcoming job is left
+        // unassigned on purpose, so the board shows the "assign someone"
+        // choices; older ones show what scheduled, on-site and done look like.
+        const taskPlan: Array<{ status: string; assignee: string | null; done: number }> = [
+          { status: 'done', assignee: 'Otieno Kefa', done: 5 },
+          { status: 'in_progress', assignee: 'Mercy Wanjiru', done: 2 },
+          { status: 'done', assignee: 'Faith Muthoni', done: 5 },
+          { status: 'scheduled', assignee: 'Amina Yusuf', done: 0 },
+          { status: 'scheduled', assignee: null, done: 0 },
+          { status: 'scheduled', assignee: 'Samuel Kiptoo', done: 0 },
+        ];
+        const plan = taskPlan[j]!;
+        const t = await client.query(
+          `insert into task (property_id, booking_id, kind, title, window_start, window_end, status, assignee, expected_cost_cents)
+           select $1, $2, 'turnover', $3,
+                  ($4::date + p.checkout_time) at time zone p.timezone,
+                  ($4::date + p.checkin_time) at time zone p.timezone,
+                  $5, $6, 350000
+             from property p where p.id = $1
+           returning id`,
+          [propertyId, b.rows[0].id, `Turnover — ${guest}`, start, plan.status, plan.assignee]
+        );
+        for (const [position, label] of TURNOVER_ITEMS.entries()) {
+          await client.query(
+            `insert into task_checklist_item (task_id, position, label, done, done_at)
+             values ($1, $2, $3, $4, case when $4 then now() else null end)`,
+            [t.rows[0].id, position + 1, label, position < plan.done]
           );
-          for (const [position, label] of TURNOVER_ITEMS.entries()) {
-            await client.query(
-              'insert into task_checklist_item (task_id, position, label) values ($1, $2, $3)',
-              [t.rows[0].id, position + 1, label]
-            );
-          }
         }
       }
 

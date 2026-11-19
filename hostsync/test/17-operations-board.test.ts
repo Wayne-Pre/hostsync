@@ -395,3 +395,68 @@ test('T-77 a member is added once: a bad role is 422 and a duplicate phone is 40
   });
   assert.equal(duplicate.statusCode, 409, duplicate.body);
 });
+
+test('an unassigned task can be handed to a team member and taken back', async () => {
+  const { user, propertyId } = await freshPortfolio();
+
+  const memberResponse = await app.inject({
+    method: 'POST',
+    url: '/api/team',
+    headers: { cookie: user.cookie },
+    payload: { name: 'Grace Wambui', role: 'cleaner' },
+  });
+  assert.equal(memberResponse.statusCode, 201, memberResponse.body);
+
+  const created = await addTask(user, {
+    propertyId,
+    kind: 'turnover',
+    title: 'Clean after checkout',
+    date: todayUTC(),
+  });
+  assert.equal(created.status, 201, created.body);
+  const taskId = created.card!.id;
+
+  const initial = await board(user);
+  assert.equal(
+    initial.columns.find((column) => column.key === 'unassigned')?.tasks.some((task) => task.id === taskId),
+    true,
+    'a new turnover starts without an owner'
+  );
+
+  const assigned = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${taskId}/assign`,
+    headers: { cookie: user.cookie },
+    payload: { assignee: 'Grace Wambui' },
+  });
+  assert.equal(assigned.statusCode, 200, assigned.body);
+
+  const afterAssign = await board(user);
+  const scheduled = afterAssign.columns.find((column) => column.key === 'scheduled')?.tasks;
+  assert.equal(scheduled?.some((task) => task.id === taskId), true, 'the card moves to SCHEDULED');
+  assert.equal(scheduled?.find((task) => task.id === taskId)?.assignee, 'Grace Wambui');
+
+  const stranger = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${taskId}/assign`,
+    headers: { cookie: user.cookie },
+    payload: { assignee: 'Somebody Else' },
+  });
+  assert.equal(stranger.statusCode, 422, stranger.body);
+
+  const cleared = await app.inject({
+    method: 'POST',
+    url: `/api/tasks/${taskId}/assign`,
+    headers: { cookie: user.cookie },
+    payload: { assignee: null },
+  });
+  assert.equal(cleared.statusCode, 200, cleared.body);
+
+  const afterClear = await board(user);
+  assert.equal(
+    afterClear.columns.find((column) => column.key === 'unassigned')?.tasks.some((task) => task.id === taskId),
+    true,
+    'the card is back in UNASSIGNED'
+  );
+  assert.equal(afterClear.counters.unassigned, 1);
+});

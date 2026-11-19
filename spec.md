@@ -799,6 +799,7 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 | Item | Why it is not done |
 |---|---|
 | F-45 task card screen | **Done** — the board renders with the four counters, four columns and the full card anatomy; the action moves the card |
+| F-47 new task on screen / assignee | **Done** — a `+ New task` dialog creates turnover cleaning work with property, type, priority, date, window, assignee, cost and notes; every card has an assignee picker, so an unassigned job can be handed to a named member and moved back |
 | F-50 – F-55 guest inbox | **Done** at the API level and on screen; the thread list, the conversation and the reply composer are live |
 | F-56 – F-61 reviews | **Done** at the API level and on screen; the feed, the reply composer and the request lists are live |
 | F-62 – F-75 money | **Done** — T-62…T-75 green: KPIs, series, accounts, performance, transaction feed, expenses, statements (draft → approved → paid), portfolio settings, review automation and channel states |
@@ -833,13 +834,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 164
-ℹ pass 164
+ℹ tests 166
+ℹ pass 166
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 87 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 89 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 

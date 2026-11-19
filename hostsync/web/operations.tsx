@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getJson, sendJson } from './client.ts';
+import { getJson, sendJson, todayIso } from './client.ts';
 import { useToast } from './toast.tsx';
 
 /**
- * F-45 — the task card anatomy, on one board.
+ * F-43 – F-49 — the operations board, on one screen.
  *
  * A card has to answer, without being opened: what kind of work is this, where,
  * what time, how much of it is done, who is doing it, and what happens next.
+ * The board can also create work (F-47) and hand it to somebody, because a
+ * turnover that cannot be assigned is a turnover nobody owns.
  */
 
 interface ChecklistItem {
@@ -42,12 +44,46 @@ interface Board {
   columns: Array<{ key: string; label: string; count: number; tasks: TaskCard[] }>;
 }
 
+interface PropertyOption {
+  id: string;
+  name: string;
+}
+
+interface TeamOption {
+  name: string;
+  active: boolean;
+}
+
 const KIND_LABEL: Record<string, string> = {
   turnover: 'TURNOVER',
   maintenance: 'MAINTENANCE',
   inspection: 'INSPECTION',
   other: 'OTHER',
 };
+
+const KIND_OPTIONS: Array<[string, string]> = [
+  ['turnover', 'Turnover'],
+  ['maintenance', 'Maintenance'],
+  ['inspection', 'Inspection'],
+  ['other', 'Other'],
+];
+
+const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent'];
+
+function newForm(propertyId: string) {
+  return {
+    propertyId,
+    kind: 'turnover',
+    title: '',
+    date: todayIso(),
+    windowStart: '11:00',
+    windowEnd: '15:00',
+    assignee: '',
+    priority: 'normal',
+    expectedCostCents: '0',
+    notes: '',
+  };
+}
 
 function windowText(card: TaskCard): string {
   const format = (iso: string) =>
@@ -72,10 +108,20 @@ export function Operations() {
   const toast = useToast();
   const [board, setBoard] = useState<Board | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [team, setTeam] = useState<TeamOption[]>([]);
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
+  const [form, setForm] = useState(() => newForm(''));
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setBoard(await getJson<Board>('/api/tasks'));
+      const [nextBoard, roster] = await Promise.all([
+        getJson<Board>('/api/tasks'),
+        getJson<{ members: TeamOption[] }>('/api/team'),
+      ]);
+      setBoard(nextBoard);
+      setTeam(roster.members.map((member) => ({ name: member.name, active: member.active })));
       setError(null);
     } catch {
       setError('Could not load the board.');
@@ -85,6 +131,52 @@ export function Operations() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function openDialog() {
+    try {
+      if (properties.length === 0) {
+        const data = await getJson<{ properties: PropertyOption[] }>('/api/properties');
+        setProperties(data.properties);
+        setForm(newForm(data.properties[0]?.id ?? ''));
+      } else {
+        setForm(newForm(properties[0]?.id ?? ''));
+      }
+    } catch {
+      // A portfolio with no properties yet still gets the form, with an error
+      // from the server if somebody tries to save without one.
+    }
+    setDialogOpen(true);
+  }
+
+  function setField(name: keyof ReturnType<typeof newForm>, value: string) {
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function create(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await sendJson('POST', '/api/tasks', {
+        propertyId: form.propertyId,
+        kind: form.kind,
+        title: form.title,
+        date: form.date,
+        windowStart: form.windowStart,
+        windowEnd: form.windowEnd,
+        assignee: form.assignee || null,
+        priority: form.priority,
+        expectedCostCents: Number(form.expectedCostCents) || 0,
+        notes: form.notes || null,
+      });
+      toast('Task added');
+      setDialogOpen(false);
+      await load();
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : 'Could not add that task', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function move(card: TaskCard, action: 'start' | 'complete' | 'reopen') {
     try {
@@ -99,6 +191,16 @@ export function Operations() {
       await load();
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : 'Could not move that task', 'error');
+    }
+  }
+
+  async function assign(card: TaskCard, name: string) {
+    try {
+      await sendJson('POST', `/api/tasks/${card.id}/assign`, { assignee: name || null });
+      toast(name ? `Assigned to ${name}` : 'Back to Unassigned');
+      await load();
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : 'Could not assign that task', 'error');
     }
   }
 
@@ -121,6 +223,24 @@ export function Operations() {
 
   return (
     <div className="stack">
+      <header className="section-head">
+        <div>
+          <p className="eyebrow">Turnovers &amp; maintenance</p>
+          <h2 className="section-title">The cleaning window nobody misses.</h2>
+          <p className="muted">
+            Every stay creates the work, its window, its checklist and its owner.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          data-testid="new-task-button"
+          onClick={() => void openDialog()}
+        >
+          + New task
+        </button>
+      </header>
+
       <section className="kpis kpis-tight" aria-label="Board counters">
         {counters.map((counter) => (
           <article className="kpi kpi-small" key={counter.key} data-counter={counter.key}>
@@ -162,16 +282,27 @@ export function Operations() {
                       <p className="task-checklist">
                         {card.checklistDone}/{card.checklistTotal} checks
                       </p>
-                      <p className="task-assignee">
-                        {card.assignee ? (
-                          <>
-                            {card.assignee}
-                            {card.assigneeActive ? '' : ' · paused'}
-                          </>
-                        ) : (
-                          'Nobody yet'
-                        )}
-                      </p>
+                      <label className="task-assign">
+                        <span className="sr-only">Assign {card.title}</span>
+                        <select
+                          className="task-assignee-select"
+                          data-testid="task-assign-select"
+                          aria-label={`Assign ${card.title}`}
+                          value={card.assignee ?? ''}
+                          onChange={(event) => void assign(card, event.target.value)}
+                        >
+                          <option value="">Unassigned</option>
+                          {team.map((member) => (
+                            <option key={member.name} value={member.name}>
+                              {member.name}
+                              {member.active ? '' : ' · paused'}
+                            </option>
+                          ))}
+                          {card.assignee && !team.some((member) => member.name === card.assignee) ? (
+                            <option value={card.assignee}>{card.assignee}</option>
+                          ) : null}
+                        </select>
+                      </label>
                       <button
                         type="button"
                         className="btn btn-block"
@@ -188,6 +319,176 @@ export function Operations() {
           </div>
         ))}
       </section>
+
+      {dialogOpen ? (
+        <>
+          <div className="sheet-overlay" onClick={() => setDialogOpen(false)} />
+          <div className="dialog-card" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
+            <div className="dialog-head">
+              <h2 className="dialog-title" id="new-task-title">
+                New task
+              </h2>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-label="Close"
+                onClick={() => setDialogOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <form className="dialog-form" data-testid="new-task-form" onSubmit={(event) => void create(event)}>
+              <div className="field">
+                <label htmlFor="task-property">Property</label>
+                <select
+                  id="task-property"
+                  name="propertyId"
+                  value={form.propertyId}
+                  onChange={(event) => setField('propertyId', event.target.value)}
+                  required
+                >
+                  {properties.map((property) => (
+                    <option key={property.id} value={property.id}>
+                      {property.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="dialog-grid">
+                <div className="field">
+                  <label htmlFor="task-kind">Type</label>
+                  <select
+                    id="task-kind"
+                    name="kind"
+                    value={form.kind}
+                    onChange={(event) => setField('kind', event.target.value)}
+                  >
+                    {KIND_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="task-priority">Priority</label>
+                  <select
+                    id="task-priority"
+                    name="priority"
+                    value={form.priority}
+                    onChange={(event) => setField('priority', event.target.value)}
+                  >
+                    {PRIORITY_OPTIONS.map((value) => (
+                      <option key={value} value={value}>
+                        {value.charAt(0).toUpperCase() + value.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="task-title">What needs doing</label>
+                <input
+                  id="task-title"
+                  name="title"
+                  value={form.title}
+                  onChange={(event) => setField('title', event.target.value)}
+                  placeholder="e.g. Clean the kitchen after checkout"
+                  required
+                />
+              </div>
+              <div className="dialog-grid">
+                <div className="field">
+                  <label htmlFor="task-date">Date</label>
+                  <input
+                    id="task-date"
+                    name="date"
+                    type="date"
+                    value={form.date}
+                    onChange={(event) => setField('date', event.target.value)}
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="task-window">Window (turnover)</label>
+                  <div className="dialog-window">
+                    <input
+                      aria-label="Window start"
+                      name="windowStart"
+                      type="time"
+                      value={form.windowStart}
+                      onChange={(event) => setField('windowStart', event.target.value)}
+                      required
+                    />
+                    <span>–</span>
+                    <input
+                      aria-label="Window end"
+                      name="windowEnd"
+                      type="time"
+                      value={form.windowEnd}
+                      onChange={(event) => setField('windowEnd', event.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="dialog-grid">
+                <div className="field">
+                  <label htmlFor="task-assignee">Assign to</label>
+                  <select
+                    id="task-assignee"
+                    name="assignee"
+                    value={form.assignee}
+                    onChange={(event) => setField('assignee', event.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {team.map((member) => (
+                      <option key={member.name} value={member.name}>
+                        {member.name}
+                        {member.active ? '' : ' · paused'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="task-cost">Expected cost</label>
+                  <input
+                    id="task-cost"
+                    name="expectedCostCents"
+                    type="number"
+                    min="0"
+                    value={form.expectedCostCents}
+                    onChange={(event) => setField('expectedCostCents', event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="task-notes">Notes</label>
+                <textarea
+                  id="task-notes"
+                  name="notes"
+                  rows={3}
+                  value={form.notes}
+                  onChange={(event) => setField('notes', event.target.value)}
+                />
+              </div>
+              <div className="sheet-actions dialog-actions">
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Adding…' : 'Add task'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="new-task-cancel"
+                  onClick={() => setDialogOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
