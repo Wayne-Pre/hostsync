@@ -25,6 +25,11 @@ export function displayNameOf(identity: Identity): string {
   return identity.user.displayName?.trim() || identity.user.email.split('@')[0] || 'You';
 }
 
+async function logout(): Promise<void> {
+  await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  window.location.assign('/login');
+}
+
 export function portfolioPill(identity: Identity): string {
   const count = identity.properties;
   return `${identity.portfolio.name.toUpperCase()} · ${count} ${count === 1 ? 'PROPERTY' : 'PROPERTIES'}`;
@@ -69,14 +74,7 @@ function IdentityHeader({ identity }: { identity: Identity }) {
         </span>
       </span>
       <form method="post" action="/auth/logout" className="logout-form">
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={async () => {
-            await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
-            window.location.assign('/login');
-          }}
-        >
+        <button type="button" className="btn btn-ghost" onClick={() => void logout()}>
           Sign out
         </button>
       </form>
@@ -142,11 +140,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Dialog.Portal>
               <Dialog.Overlay className="drawer-overlay" />
               <Dialog.Content className="drawer" aria-label="Navigation">
-                <Dialog.Title className="drawer-title">Navigate</Dialog.Title>
-                <Dialog.Description className="drawer-desc">
-                  Every screen in the workspace.
-                </Dialog.Description>
+                <Dialog.Title className="drawer-title">
+                  HostSync<span className="drawer-dot">.</span>
+                </Dialog.Title>
+                <Dialog.Description className="drawer-desc">SHORT-STAY OPERATIONS</Dialog.Description>
                 <NavLinks pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+                {identity ? (
+                  <div className="drawer-foot">
+                    <span className="drawer-user">
+                      {displayNameOf(identity)}
+                      <small>Signed in</small>
+                    </span>
+                    <button type="button" className="btn btn-ghost" onClick={() => void logout()}>
+                      Sign out
+                    </button>
+                  </div>
+                ) : null}
                 <Dialog.Close asChild>
                   <button type="button" className="btn btn-ghost">
                     Close
@@ -155,6 +164,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
+
+          <a className="mobile-brand" href="/dashboard" aria-label="HostSync home">
+            HostSync<span className="mobile-brand-caret" aria-hidden="true">⌄</span>
+          </a>
 
           <div className="topbar-title">
             <h1>{NAV.find((item) => item.href === pathname)?.label ?? 'Overview'}</h1>

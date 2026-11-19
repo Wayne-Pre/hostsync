@@ -104,12 +104,27 @@ test('T-13 at 390 px the sidebar hides, "Open navigation" opens a drawer and its
   await page.goto('/dashboard');
 
   assert.equal(await page.locator('[data-testid="sidebar"]').isVisible(), false, 'sidebar is gone');
+  assert.equal(await page.locator('.mobile-brand').isVisible(), true, 'the brand bar is visible');
+
+  // The phone layout must use the whole viewport, not a squeezed desktop column.
+  const widths = await page.evaluate(() => {
+    const g = globalThis as any;
+    return {
+      viewport: g.innerWidth as number,
+      content: Math.round(g.document.querySelector('.content').getBoundingClientRect().width) as number,
+      scroll: g.document.documentElement.scrollWidth as number,
+    };
+  });
+  assert.ok(widths.content >= widths.viewport - 2, `content fills the phone (${JSON.stringify(widths)})`);
+  assert.ok(widths.scroll <= widths.viewport + 1, `no horizontal overflow (${JSON.stringify(widths)})`);
 
   await page.getByRole('button', { name: 'Open navigation' }).click();
 
   const drawer = page.locator('.drawer');
   await drawer.waitFor({ state: 'visible' });
   assert.equal(await drawer.locator('a.nav-item').count(), 10, 'the drawer carries the whole navigation');
+  const drawerBg = await drawer.evaluate((el) => (globalThis as any).getComputedStyle(el).backgroundColor);
+  assert.equal(drawerBg, 'rgb(29, 26, 22)', 'the drawer keeps the dark theme');
 
   await drawer.locator('a[data-nav="Calendar"]').click();
   await page.waitForURL((url) => url.pathname === '/calendar');

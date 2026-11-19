@@ -815,6 +815,7 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 | Statement detail | **Done** — migration 014 freezes line items at approval, `GET /api/statements/:id` exposes them with their ledger entries, and the payouts screen's "View" button opens the drill-down dialog |
 | Fee history | **Done** — migration 015 stores effective-dated fee overrides; new statements use the bps in force at their period start, and a backdated change cannot rewrite a settled statement |
 | pg DATE handling | **Fixed** — `pg` returns `DATE` as local midnight; date-only fields are now formatted from local components so a statement's period and a fee's effective date cannot shift a day in UTC+3 |
+| Phone layout | **Done** — below 900 px the shell becomes one full-width column with a clean brand bar, stacked cards and the original dark slide-in drawer; T-13 asserts the content fills a 390 px viewport with no horizontal overflow |
 
 ### 8.4 Known deliberate divergences from the original
 
