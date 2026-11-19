@@ -10,7 +10,9 @@ import { FEATURES, STATS, STEPS } from './content.ts';
 export function Landing() {
   return (
     <div className="landing">
-      <header className="landing-nav">
+      <main>
+        <div className="hero-block">
+          <header className="landing-nav">
         <a className="brand" href="/">
           <span className="brand-mark" aria-hidden="true" />
           HostSync
@@ -23,12 +25,11 @@ export function Landing() {
             Create account
           </a>
         </nav>
-      </header>
+        </header>
 
-      <main>
         <section className="hero">
           <p className="eyebrow">Property operations for short lets</p>
-          <h1>Add your property. We hold every night.</h1>
+          <h1>Add your property. <em>We hold every night.</em></h1>
           <p className="hero-sub">
             One calendar for every channel, one ledger for every stay, and a database that refuses to
             let two guests book the same night. Built for hosts who are done reconciling spreadsheets
@@ -53,6 +54,7 @@ export function Landing() {
             ))}
           </ul>
         </section>
+      </div>
 
         <section className="steps" aria-labelledby="steps-title">
           <h2 id="steps-title">Three steps to a week that holds</h2>

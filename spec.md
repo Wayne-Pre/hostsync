@@ -825,6 +825,7 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 - **Vite is replaced by esbuild** for the same reason. No dev server runs beside the API: `npm run build:web && npm start`.
 - **TanStack Router/Query are not used**: every navigation is a real document load, which is what lets the server enforce F-09's guard before any markup is sent.
 - **Postgres runs on 5433 from a portable 16.16 build**, started with `-o "-p 5433"`; the deployment keeps its own data directory outside the repository.
+- **Theme is ported from the original app**: cream `#faf8f5`, ink `#201c18`, gold `#ab7d44`, 228 px dark sidebar, Instrument Serif display type, Inter body, IBM Plex Mono labels, pill buttons. The Google Fonts stylesheet is the only external asset the browser loads.
 
 ### 8.5 The final gate
 
