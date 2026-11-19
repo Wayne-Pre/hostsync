@@ -17,7 +17,8 @@
     "selfcheck": "node scripts/selfcheck.mjs",
     "reconcile": "node scripts/reconcile.ts",
     "stress": "node scripts/stress.mjs",
-    "verify:deploy": "node scripts/verify-deployment.mjs"
+    "verify:deploy": "node scripts/verify-deployment.mjs",
+    "seed:demo": "node scripts/seed-demo.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

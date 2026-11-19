@@ -833,13 +833,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 162
-ℹ pass 162
+ℹ tests 164
+ℹ pass 164
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 85 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 87 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 
