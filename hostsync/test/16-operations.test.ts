@@ -33,9 +33,9 @@ interface TaskRow {
 async function tasksFor(bookingId: string): Promise<TaskRow[]> {
   const result = await pool.query<TaskRow>(
     `select id, kind, status, title,
-            window_start::date::text as day,
-            to_char(window_start, 'YYYY-MM-DD HH24:MI') as window_start,
-            to_char(window_end, 'YYYY-MM-DD HH24:MI') as window_end
+            (window_start at time zone (select timezone from property where id = property_id))::date::text as day,
+            to_char(window_start at time zone (select timezone from property where id = property_id), 'YYYY-MM-DD HH24:MI') as window_start,
+            to_char(window_end at time zone (select timezone from property where id = property_id), 'YYYY-MM-DD HH24:MI') as window_end
        from task where booking_id = $1 order by created_at`,
     [bookingId]
   );
