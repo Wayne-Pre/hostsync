@@ -826,19 +826,20 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 - **TanStack Router/Query are not used**: every navigation is a real document load, which is what lets the server enforce F-09's guard before any markup is sent.
 - **Postgres runs on 5433 from a portable 16.16 build**, started with `-o "-p 5433"`; the deployment keeps its own data directory outside the repository.
 - **Theme is ported from the original app**: cream `#faf8f5`, ink `#201c18`, gold `#ab7d44`, 228 px dark sidebar, Instrument Serif display type, Inter body, IBM Plex Mono labels, pill buttons. The Google Fonts stylesheet is the only external asset the browser loads.
+- **Brand logo** is the owner-supplied `hostsync.jpeg` compass mark, bundled as `/assets/logo.jpeg`, used in the sidebar, landing page, auth screens and as the favicon.
 
 ### 8.5 The final gate
 
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 161
-ℹ pass 161
+ℹ tests 162
+ℹ pass 162
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 84 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 85 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 

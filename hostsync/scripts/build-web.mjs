@@ -36,6 +36,7 @@ const result = await build({
 });
 
 cpSync(join(root, 'web', 'styles.css'), join(assets, 'app.css'));
+cpSync(join(root, 'web', 'logo.jpeg'), join(assets, 'logo.jpeg'));
 cpSync(join(root, 'web', 'index.html'), join(outDir, 'index.html'));
 
 const bytes = Object.values(result.metafile.outputs).reduce((sum, output) => sum + output.bytes, 0);

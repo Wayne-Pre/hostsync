@@ -99,3 +99,23 @@ test('T-03 the shipped bundle has no Base44 badge, no badge script and no paid S
   assert.deepEqual(scripts, ['/assets/app.js']);
   assert.equal(scripts.every((src) => src?.startsWith('/assets/')), true);
 });
+
+test('the uploaded HostSync compass logo is served and used as the brand', async () => {
+  const page = await context.newPage();
+  await page.goto('/');
+  const mark = page.locator('img.brand-mark').first();
+  await mark.waitFor();
+  assert.equal(await mark.getAttribute('src'), '/assets/logo.jpeg');
+
+  const asset = await page.evaluate(async () => {
+    const response = await fetch('/assets/logo.jpeg');
+    return {
+      status: response.status,
+      type: response.headers.get('content-type'),
+      bytes: (await response.arrayBuffer()).byteLength,
+    };
+  });
+  assert.equal(asset.status, 200);
+  assert.match(asset.type ?? '', /image\/jpeg/);
+  assert.ok(asset.bytes > 10_000, 'the real image is served, not a placeholder');
+});

@@ -60,7 +60,7 @@ export function sendShell(reply: FastifyReply): void {
     .send(shellHtml());
 }
 
-const ASSET_CACHE = new Set(['/assets/app.js', '/assets/app.css']);
+const ASSET_CACHE = new Set(['/assets/app.js', '/assets/app.css', '/assets/logo.jpeg']);
 
 /**
  * Serve one built asset. Returns false (and sends nothing) when the path is not

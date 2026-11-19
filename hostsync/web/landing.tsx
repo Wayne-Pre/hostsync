@@ -14,7 +14,7 @@ export function Landing() {
         <div className="hero-block">
           <header className="landing-nav">
         <a className="brand" href="/">
-          <span className="brand-mark" aria-hidden="true" />
+          <img className="brand-mark" src="/assets/logo.jpeg" alt="" aria-hidden="true" />
           HostSync
         </a>
         <nav className="landing-nav-actions" aria-label="Account">

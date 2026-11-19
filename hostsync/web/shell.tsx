@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="shell">
       <aside className="sidebar" data-testid="sidebar">
         <a className="brand" href="/dashboard">
-          <span className="brand-mark" aria-hidden="true" />
+          <img className="brand-mark" src="/assets/logo.jpeg" alt="" aria-hidden="true" />
           HostSync
         </a>
         <NavLinks pathname={pathname} />

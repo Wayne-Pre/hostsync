@@ -25,7 +25,7 @@ export function AuthFrame({
   return (
     <div className="auth">
       <a className="brand" href="/">
-        <span className="brand-mark" aria-hidden="true" />
+        <img className="brand-mark" src="/assets/logo.jpeg" alt="" aria-hidden="true" />
         HostSync
       </a>
       <div className="auth-card">
