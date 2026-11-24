@@ -38,6 +38,8 @@ export const PUBLIC_PAGES = [
  * Screens behind the session guard — the ten sidebar destinations of F-11.
  * `/dashboard` is "Overview".
  */
+export const MY_JOBS_PAGE = '/my-jobs';
+
 export const APP_PAGES = [
   '/dashboard',
   '/calendar',
@@ -218,6 +220,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
   }
 
+  // A worker's screen. Owners are sent back to their dashboard; a signed-out
+  // visitor is sent to the same login everyone else uses.
+  app.get(MY_JOBS_PAGE, async (request, reply) => {
+    const session = await currentSession(request);
+    if (!session) {
+      reply.code(302).header('location', '/login').send();
+      return;
+    }
+    if (session.user.accountRole !== 'cleaner') {
+      reply.code(302).header('location', '/dashboard').send();
+      return;
+    }
+    sendShell(reply);
+  });
+
   // ---- F-09 session guard --------------------------------------------------
   // A signed-out visitor never receives the app shell: the redirect happens at
   // the HTTP layer, before any personal data is rendered.
@@ -226,6 +243,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const session = await currentSession(request);
       if (!session) {
         reply.code(302).header('location', '/login').send();
+        return;
+      }
+      if (session.user.accountRole === 'cleaner') {
+        reply.code(302).header('location', MY_JOBS_PAGE).send();
         return;
       }
       // A signed-in user without a portfolio has no data to load. Send them to

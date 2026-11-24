@@ -21,6 +21,7 @@ test('seed:demo creates an account that can sign in and read real data', () => {
     env: process.env,
   });
   assert.match(output, /Demo account ready/);
+  assert.match(output, /Field-worker login: cleaner@hostsync.app \/ Cleaner12345!/);
   assert.match(output, /6 properties, 36 stays/);
 });
 
@@ -71,6 +72,24 @@ test('the seeded demo account has a working dashboard and ledger', async () => {
   assert.match(unassigned!.tasks[0]!.title, /Turnover/, 'the first row is a cleaning turnover');
   assert.equal(unassigned!.tasks[0]!.assignee, null, 'the first row is unscheduled');
   assert.equal(unassigned!.tasks[0]!.kind, 'turnover');
+
+  const workerLogin = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { email: 'cleaner@hostsync.app', password: 'Cleaner12345!' },
+  });
+  assert.equal(workerLogin.statusCode, 200, workerLogin.body);
+  const workerToken = workerLogin.cookies.find((entry) => entry.name === 'hs_session')?.value;
+  assert.ok(workerToken, 'the demo cleaner can sign in');
+  const workerJobs = await app.inject({
+    method: 'GET',
+    url: '/api/my-jobs',
+    headers: { cookie: `hs_session=${workerToken}` },
+  });
+  assert.equal(workerJobs.statusCode, 200, workerJobs.body);
+  const mine = (workerJobs.json() as { jobs: { columns: Array<{ tasks: unknown[] }> } }).jobs.columns
+    .flatMap((column) => column.tasks);
+  assert.ok(mine.length >= 12, 'the demo cleaner has real jobs across the board');
 
   await app.close();
 });

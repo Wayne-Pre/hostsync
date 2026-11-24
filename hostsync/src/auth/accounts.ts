@@ -17,6 +17,7 @@ export interface PublicUser {
   isVerified: boolean;
   onboardingComplete: boolean;
   forcePasswordReset: boolean;
+  accountRole: 'owner' | 'cleaner';
 }
 
 interface UserRow {
@@ -28,6 +29,7 @@ interface UserRow {
   onboarding_complete: boolean;
   force_password_reset: boolean;
   disabled: boolean;
+  account_role?: 'owner' | 'cleaner';
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -40,6 +42,7 @@ function publicUser(row: UserRow): PublicUser {
     isVerified: row.is_verified,
     onboardingComplete: row.onboarding_complete,
     forcePasswordReset: row.force_password_reset,
+    accountRole: row.account_role ?? 'owner',
   };
 }
 
@@ -57,7 +60,7 @@ function requireEmail(value: unknown): string {
 async function findUserByEmail(email: string): Promise<UserRow | null> {
   return queryOne<UserRow>(
     `select id, email, password_hash, display_name, is_verified,
-            onboarding_complete, force_password_reset, disabled
+            onboarding_complete, force_password_reset, disabled, account_role
        from app_user where lower(email) = lower($1)`,
     [email]
   );
@@ -66,7 +69,7 @@ async function findUserByEmail(email: string): Promise<UserRow | null> {
 export async function getUserById(id: string): Promise<UserRow> {
   const row = await queryOne<UserRow>(
     `select id, email, password_hash, display_name, is_verified,
-            onboarding_complete, force_password_reset, disabled
+            onboarding_complete, force_password_reset, disabled, account_role
        from app_user where id = $1`,
     [id]
   );
@@ -118,7 +121,7 @@ export async function registerUser(
       `insert into app_user (email, password_hash, display_name)
        values ($1, $2, $3)
        returning id, email, password_hash, display_name, is_verified,
-                 onboarding_complete, force_password_reset, disabled`,
+                 onboarding_complete, force_password_reset, disabled, account_role`,
       [email, passwordHash, displayName]
     );
   } catch (error) {
@@ -169,7 +172,7 @@ export async function verifyEmail(emailInput: unknown, code: unknown): Promise<P
     `update app_user set is_verified = true
       where id = $1
       returning id, email, password_hash, display_name, is_verified,
-                onboarding_complete, force_password_reset, disabled`,
+                onboarding_complete, force_password_reset, disabled, account_role`,
     [user.id]
   );
   if (!updated) throw new NotFoundError('user');
@@ -368,7 +371,7 @@ export async function completeOnboarding(
               display_name = coalesce($2, display_name)
         where id = $1
         returning id, email, password_hash, display_name, is_verified,
-                  onboarding_complete, force_password_reset, disabled`,
+                  onboarding_complete, force_password_reset, disabled, account_role`,
       [userId, displayName]
     );
     const row = userRow.rows[0];

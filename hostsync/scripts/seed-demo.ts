@@ -12,6 +12,8 @@ import { addDays, todayUTC } from '../src/dates.ts';
 
 const EMAIL = 'demo@hostsync.app';
 const PASSWORD = 'Demo12345!';
+export const WORKER_EMAIL = 'cleaner@hostsync.app';
+export const WORKER_PASSWORD = 'Cleaner12345!';
 const COMMISSION = { airbnb: 1500, booking_com: 1500, vrbo: 800, direct: 0, whatsapp: 0 };
 const CHANNELS = ['airbnb', 'booking_com', 'vrbo', 'direct', 'whatsapp'];
 const CATEGORY_LABELS = {
@@ -38,6 +40,7 @@ function money(cents: number): string {
 
 async function main() {
   const passwordHash = await hashPassword(PASSWORD);
+  const workerHash = await hashPassword(WORKER_PASSWORD);
   const summary = await withTransaction(async (client) => {
     await client.query("set local hostsync.ledger_purge = 'on'");
     const existing = await client.query('select id from app_user where lower(email) = lower($1)', [EMAIL]);
@@ -93,6 +96,25 @@ async function main() {
         [portfolioId, name, role, phone, rate, reliability, active]
       );
     }
+
+    // A real field-worker login, linked to the cleaner the demo jobs go to.
+    const worker = await client.query(
+      `insert into app_user (email, password_hash, display_name, is_verified,
+                             onboarding_complete, account_role)
+       values ($1, $2, 'Otieno Kefa', true, true, 'cleaner')
+       on conflict (lower(email)) do update
+         set password_hash = excluded.password_hash,
+             display_name = excluded.display_name,
+             is_verified = true, onboarding_complete = true, account_role = 'cleaner',
+             disabled = false
+       returning id`,
+      [WORKER_EMAIL, workerHash]
+    );
+    await client.query(
+      `update team_member set user_id = $1
+        where portfolio_id = $2 and name = 'Otieno Kefa'`,
+      [worker.rows[0].id, portfolioId]
+    );
 
     const propertySpecs: PropertySpec[] = [
       ['Karen Cottage', 'cottage', 'Karen', 'Nairobi', 2, 2, 4, 1_500_000, 300_000, 1500, 'David Mwangi'],
@@ -189,9 +211,9 @@ async function main() {
           { status: 'done', assignee: 'Otieno Kefa', done: 5 },
           { status: 'in_progress', assignee: 'Mercy Wanjiru', done: 2 },
           { status: 'done', assignee: 'Faith Muthoni', done: 5 },
-          { status: 'scheduled', assignee: 'Amina Yusuf', done: 0 },
+          { status: 'scheduled', assignee: 'Otieno Kefa', done: 0 },
           { status: 'scheduled', assignee: null, done: 0 },
-          { status: 'scheduled', assignee: 'Samuel Kiptoo', done: 0 },
+          { status: 'scheduled', assignee: 'Amina Yusuf', done: 0 },
         ];
         const plan = taskPlan[j]!;
         const t = await client.query(
@@ -317,6 +339,7 @@ async function main() {
   });
 
   console.log(`Demo account ready: ${EMAIL} / ${PASSWORD}`);
+  console.log(`Field-worker login: ${WORKER_EMAIL} / ${WORKER_PASSWORD}`);
   console.log(`  ${summary.properties} properties, ${summary.bookings} stays, ` +
     `${summary.statements} statements, revenue ${money(summary.revenue)}, expenses ${money(summary.expenses)}`);
 }

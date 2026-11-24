@@ -58,9 +58,12 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      await sendJson('POST', '/auth/login', { email, password });
+      const result = await sendJson<{ user: { accountRole?: string } }>('POST', '/auth/login', {
+        email,
+        password,
+      });
       toast('Signed in');
-      window.location.assign('/dashboard');
+      window.location.assign(result.user?.accountRole === 'cleaner' ? '/my-jobs' : '/dashboard');
     } catch (caught) {
       const message = caught instanceof ApiError ? caught.message : 'Could not sign you in';
       setError(

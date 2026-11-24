@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { query, queryOne } from './db.ts';
-import { ConflictError, NotFoundError, ValidationError } from './errors.ts';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from './errors.ts';
 import { addDays, isISODate, nightsBetween, todayUTC } from './dates.ts';
 import { findSession } from './auth/sessions.ts';
 import type { AuthenticatedSession } from './auth/sessions.ts';
@@ -21,8 +21,24 @@ import {
 } from './properties.ts';
 import { syncPortfolioFeeds, syncPropertyFeeds } from './ics/sync.ts';
 import { loadBoard } from './operations.ts';
-import { assignTask, createTask, moveTask, setChecklistItem } from './tasks.ts';
-import { addMember, listAssignableTeam, listTeam, setMemberActive } from './team.ts';
+import {
+  addTaskPhoto,
+  assertAssignedTo,
+  assignTask,
+  createTask,
+  listMyJobs,
+  moveTask,
+  setChecklistItem,
+  taskProof,
+} from './tasks.ts';
+import {
+  addMember,
+  createWorkerAccount,
+  findWorkerMembership,
+  listAssignableTeam,
+  listTeam,
+  setMemberActive,
+} from './team.ts';
 import { listThreads, getThread, createConversation, REPLY_CHANNELS, reply as sendGuestReply } from './inbox.ts';
 import {
   getSettings as getReviewSettings,
@@ -114,6 +130,22 @@ function resolveFeeBps(input: Record<string, unknown>): number | null | undefine
     throw new ValidationError('managementFeeBps must be between 0 and 10000', 'managementFeeBps');
   }
   return Math.round(percent * 100);
+}
+
+/** Resolve who is asking before any task mutation: owner/manager or worker. */
+async function taskContext(request: FastifyRequest): Promise<{
+  portfolioId: string;
+  actorId: string;
+  membership: Awaited<ReturnType<typeof findWorkerMembership>>;
+}> {
+  const session = request.session!;
+  if (session.user.accountRole === 'cleaner') {
+    const membership = await findWorkerMembership(session.user.id);
+    if (!membership) throw new ForbiddenError('this login has no worker profile');
+    return { portfolioId: membership.portfolioId, actorId: session.user.id, membership };
+  }
+  const portfolio = await requirePortfolio(session.user.id);
+  return { portfolioId: portfolio.id, actorId: session.user.id, membership: null };
 }
 
 async function requirePortfolio(userId: string): Promise<Portfolio> {
@@ -321,6 +353,23 @@ export async function registerApi(
           return reply;
         }
         request.session = session;
+
+        // A cleaner has one job: the work assigned to them. Everything else —
+        // money, other properties, other people's tasks — is refused here, not
+        // merely hidden in the UI.
+        if (session.user.accountRole === 'cleaner') {
+          const path = request.url.split('?')[0] ?? '';
+          const allowed =
+            path === '/api/my-jobs' ||
+            /^\/api\/tasks\/[^/]+\/(start|complete|reopen|checklist|photos|proof)$/.test(path);
+          if (!allowed) {
+            reply.code(403).send({
+              error: 'forbidden',
+              message: 'this screen is for workspace owners and managers',
+            });
+            return reply;
+          }
+        }
         return undefined;
       });
 
@@ -796,44 +845,96 @@ export async function registerApi(
 
       // ---- F-48 task lifecycle ------------------------------------------------
       api.post('/tasks/:id/start', async (request) => {
-        const portfolio = await requirePortfolio(request.session!.user.id);
-        const status = await moveTask(params(request).id!, portfolio.id, 'start');
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
+        const status = await moveTask(params(request).id!, ctx.portfolioId, 'start', ctx.actorId);
         return { status };
       });
 
       api.post('/tasks/:id/complete', async (request) => {
-        const portfolio = await requirePortfolio(request.session!.user.id);
-        const status = await moveTask(params(request).id!, portfolio.id, 'complete');
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
+        const status = await moveTask(
+          params(request).id!,
+          ctx.portfolioId,
+          'complete',
+          ctx.actorId
+        );
         return { status };
       });
 
       api.post('/tasks/:id/reopen', async (request) => {
-        const portfolio = await requirePortfolio(request.session!.user.id);
-        const status = await moveTask(params(request).id!, portfolio.id, 'reopen');
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
+        const status = await moveTask(
+          params(request).id!,
+          ctx.portfolioId,
+          'reopen',
+          ctx.actorId
+        );
         return { status };
       });
 
       // ---- assign a task ------------------------------------------------------
       api.post('/tasks/:id/assign', async (request) => {
-        const portfolio = await requirePortfolio(request.session!.user.id);
+        const ctx = await taskContext(request);
+        if (ctx.membership) throw new ForbiddenError('only a manager can assign work');
         const input = body(request);
         const assignee =
           typeof input.assignee === 'string' && input.assignee ? input.assignee : null;
-        const status = await assignTask(params(request).id!, portfolio.id, assignee);
+        const status = await assignTask(
+          params(request).id!,
+          ctx.portfolioId,
+          assignee,
+          ctx.actorId
+        );
         return { status };
       });
 
       // ---- F-49 checklist -----------------------------------------------------
       api.post('/tasks/:id/checklist', async (request) => {
-        const portfolio = await requirePortfolio(request.session!.user.id);
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
         const input = body(request);
         const result = await setChecklistItem(
           params(request).id!,
-          portfolio.id,
+          ctx.portfolioId,
           Number(input.position ?? 0),
-          input.done === true
+          input.done === true,
+          ctx.actorId
         );
         return result;
+      });
+
+      // ---- field-worker proof ------------------------------------------------
+      api.get('/my-jobs', async (request) => {
+        const session = request.session!;
+        if (session.user.accountRole !== 'cleaner') {
+          throw new ForbiddenError('this screen is for field workers');
+        }
+        const membership = await findWorkerMembership(session.user.id);
+        if (!membership) throw new ForbiddenError('this login has no worker profile');
+        return { jobs: await listMyJobs(membership), worker: membership.name };
+      });
+
+      api.post('/tasks/:id/photos', async (request) => {
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
+        const input = body(request);
+        await addTaskPhoto({
+          taskId: params(request).id!,
+          portfolioId: ctx.portfolioId,
+          dataUrl: String(input.dataUrl ?? ''),
+          caption: typeof input.caption === 'string' ? input.caption : null,
+          actorId: ctx.actorId,
+        });
+        return { saved: true };
+      });
+
+      api.get('/tasks/:id/proof', async (request) => {
+        const ctx = await taskContext(request);
+        if (ctx.membership) await assertAssignedTo(params(request).id!, ctx.membership);
+        return taskProof(params(request).id!, ctx.portfolioId);
       });
 
       // ---- F-50 – F-55 guest inbox -------------------------------------------
@@ -923,6 +1024,19 @@ export async function registerApi(
           phone: typeof input.phone === 'string' && input.phone ? input.phone : null,
           hourlyRateCents: Number(input.hourlyRateCents ?? 0),
           reliabilityPct: Number(input.reliabilityPct ?? 100),
+        });
+        reply.code(201).send({ member });
+      });
+
+      // Give a roster member their own field-worker login.
+      api.post('/team/:id/worker-account', async (request, reply) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const input = body(request);
+        const member = await createWorkerAccount({
+          memberId: params(request).id!,
+          portfolioId: portfolio.id,
+          email: String(input.email ?? ''),
+          password: String(input.password ?? ''),
         });
         reply.code(201).send({ member });
       });

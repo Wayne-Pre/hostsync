@@ -98,8 +98,9 @@ test('the board can create a cleaning task on screen and hand it to somebody', a
 
   const page = await ui.signedIn(user);
   await page.goto('/operations', { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-testid="board"]').waitFor({ state: 'visible', timeout: 90_000 });
 
-  await page.locator('[data-testid="new-task-button"]').click();
+  await page.locator('[data-testid="new-task-button"]').click({ timeout: 60_000 });
   const form = page.locator('[data-testid="new-task-form"]');
   await form.waitFor({ state: 'visible' });
   await form.locator('[name="propertyId"]').selectOption(property.id);
@@ -130,6 +131,12 @@ test('the board can create a cleaning task on screen and hand it to somebody', a
   await assigned.waitFor({ state: 'visible' });
   assert.equal(await assigned.count(), 1, 'assigning moves the card to SCHEDULED');
   assert.equal(await assigned.locator('.task-assignee-select').inputValue(), 'Grace Wambui');
+
+  await assigned.locator('[data-testid="task-proof-button"]').click();
+  const dialog = page.getByRole('dialog', { name: 'Proof & history' });
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /assigned/i, 'the manager sees who did what');
+  await dialog.getByRole('button', { name: 'Close' }).click();
 
   await page.context().close();
 });

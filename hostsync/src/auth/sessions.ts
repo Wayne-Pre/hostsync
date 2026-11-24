@@ -3,6 +3,8 @@ import { randomToken, sha256 } from './tokens.ts';
 
 export const SESSION_TTL_DAYS = 30;
 
+export type AccountRole = 'owner' | 'cleaner';
+
 export interface SessionUser {
   id: string;
   email: string;
@@ -11,6 +13,7 @@ export interface SessionUser {
   onboardingComplete: boolean;
   forcePasswordReset: boolean;
   disabled: boolean;
+  accountRole: AccountRole;
 }
 
 interface SessionRow {
@@ -23,6 +26,7 @@ interface SessionRow {
   onboarding_complete: boolean;
   force_password_reset: boolean;
   disabled: boolean;
+  account_role: AccountRole;
 }
 
 export interface Session {
@@ -57,7 +61,8 @@ export async function findSession(token: string): Promise<AuthenticatedSession |
   const row = await queryOne<SessionRow>(
     `select s.id as session_id, s.expires_at,
             u.id as user_id, u.email, u.display_name, u.is_verified,
-            u.onboarding_complete, u.force_password_reset, u.disabled
+            u.onboarding_complete, u.force_password_reset, u.disabled,
+            u.account_role
        from session s
        join app_user u on u.id = s.user_id
       where s.token_hash = $1
@@ -83,6 +88,7 @@ export async function findSession(token: string): Promise<AuthenticatedSession |
       onboardingComplete: row.onboarding_complete,
       forcePasswordReset: row.force_password_reset,
       disabled: row.disabled,
+      accountRole: row.account_role ?? 'owner',
     },
   };
 }

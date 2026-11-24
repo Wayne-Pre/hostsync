@@ -4,8 +4,10 @@
  * A paused member is not deleted: the history of who did which turnover still
  * has to read correctly. Pausing only removes somebody from the pickers.
  */
-import { query, queryOne } from './db.ts';
+import { query, queryOne, withTransaction } from './db.ts';
 import { ConflictError, NotFoundError, ValidationError } from './errors.ts';
+import { assertPasswordAcceptable, hashPassword } from './auth/passwords.ts';
+import { normalizeEmail } from './auth/tokens.ts';
 
 export const TEAM_ROLES = [
   'owner',
@@ -114,6 +116,73 @@ export async function addMember(input: AddMemberInput): Promise<TeamMember> {
   );
   if (!row) throw new Error('team member insert returned no row');
   return mapMember(row);
+}
+
+/** The roster row tied to a cleaner login: its name is the task assignee. */
+export interface WorkerMembership {
+  portfolioId: string;
+  name: string;
+}
+
+export async function findWorkerMembership(
+  userId: string
+): Promise<WorkerMembership | null> {
+  return queryOne<WorkerMembership>(
+    `select portfolio_id as "portfolioId", name
+       from team_member where user_id = $1`,
+    [userId]
+  );
+}
+
+/** Give an existing roster member their own login for the field screen. */
+export async function createWorkerAccount(input: {
+  memberId: string;
+  portfolioId: string;
+  email: string;
+  password: string;
+}): Promise<TeamMember> {
+  const email = normalizeEmail(input.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+    throw new ValidationError('email is not a valid address', 'email');
+  }
+  const password = assertPasswordAcceptable(input.password);
+  const hash = await hashPassword(password);
+
+  return withTransaction(async (client) => {
+    const member = await client.query<MemberRow>(
+      `select id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active
+         from team_member where id = $1 and portfolio_id = $2`,
+      [input.memberId, input.portfolioId]
+    );
+    const existingMember = member.rows[0];
+    if (!existingMember) throw new NotFoundError('team member');
+
+    const duplicate = await client.query<{ id: string }>(
+      'select id from app_user where lower(email) = lower($1)',
+      [email]
+    );
+    if (duplicate.rows[0]) throw new ConflictError('that email is already in use');
+
+    const created = await client.query<{ id: string }>(
+      `insert into app_user (email, password_hash, display_name, is_verified,
+                             onboarding_complete, account_role)
+       values ($1, $2, $3, true, true, 'cleaner')
+       returning id`,
+      [email, hash, existingMember.name]
+    );
+    const userId = created.rows[0]?.id;
+    if (!userId) throw new Error('worker account insert returned no row');
+
+    const updated = await client.query<MemberRow>(
+      `update team_member set user_id = $2, updated_at = now()
+        where id = $1
+        returning id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active, user_id`,
+      [input.memberId, userId]
+    );
+    const row = updated.rows[0];
+    if (!row) throw new NotFoundError('team member');
+    return mapMember(row);
+  });
 }
 
 /** Pausing keeps the record and clears the member from the assignment pickers. */

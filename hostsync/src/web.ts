@@ -23,6 +23,7 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
 };
 
 const SHELL_TITLE = 'HostSync — Add your property. We hold every night.';
@@ -60,7 +61,12 @@ export function sendShell(reply: FastifyReply): void {
     .send(shellHtml());
 }
 
-const ASSET_CACHE = new Set(['/assets/app.js', '/assets/app.css', '/assets/logo.jpeg']);
+const ASSET_CACHE = new Set([
+  '/assets/app.js',
+  '/assets/app.css',
+  '/assets/logo.jpeg',
+  '/manifest.webmanifest',
+]);
 
 /**
  * Serve one built asset. Returns false (and sends nothing) when the path is not

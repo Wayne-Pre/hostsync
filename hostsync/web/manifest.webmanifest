@@ -1,0 +1,17 @@
+{
+  "name": "HostSync Field Work",
+  "short_name": "HostSync",
+  "description": "Your assigned turnovers, checklist and proof photos.",
+  "start_url": "/my-jobs",
+  "display": "standalone",
+  "background_color": "#faf8f5",
+  "theme_color": "#201c18",
+  "icons": [
+    {
+      "src": "/assets/logo.jpeg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

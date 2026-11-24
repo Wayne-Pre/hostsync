@@ -14,6 +14,7 @@ import { Payouts } from './payouts.tsx';
 import { SettingsScreen } from './settings.tsx';
 import { Properties } from './properties.tsx';
 import { Bookings } from './bookings.tsx';
+import { MyJobs } from './myjobs.tsx';
 
 /**
  * The whole router.
@@ -33,6 +34,7 @@ export function App() {
       {path === '/forgot-password' ? <ForgotPassword /> : null}
       {path === '/reset-password' ? <ResetPassword /> : null}
       {path === '/onboarding' ? <Onboarding /> : null}
+      {path === '/my-jobs' ? <MyJobs /> : null}
       {isAppPage(path) ? <AppShell>{screenFor(path)}</AppShell> : null}
     </ToastProvider>
   );
