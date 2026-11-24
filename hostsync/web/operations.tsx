@@ -44,6 +44,11 @@ interface Board {
   columns: Array<{ key: string; label: string; count: number; tasks: TaskCard[] }>;
 }
 
+interface TaskProof {
+  photos: Array<{ id: string; dataUrl: string; caption: string | null; createdAt: string; by: string | null }>;
+  events: Array<{ id: string; action: string; detail: Record<string, unknown>; createdAt: string; by: string | null }>;
+}
+
 interface PropertyOption {
   id: string;
   name: string;
@@ -113,6 +118,8 @@ export function Operations() {
   const [form, setForm] = useState(() => newForm(''));
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [proofCard, setProofCard] = useState<TaskCard | null>(null);
+  const [proof, setProof] = useState<TaskProof | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -191,6 +198,16 @@ export function Operations() {
       await load();
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : 'Could not move that task', 'error');
+    }
+  }
+
+  async function openProof(card: TaskCard) {
+    setProofCard(card);
+    setProof(null);
+    try {
+      setProof(await getJson<TaskProof>(`/api/tasks/${card.id}/proof`));
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : 'Could not load the job history', 'error');
     }
   }
 
@@ -311,6 +328,14 @@ export function Operations() {
                       >
                         {action.label}
                       </button>
+                      <button
+                        type="button"
+                        className="btn btn-block btn-ghost"
+                        data-testid="task-proof-button"
+                        onClick={() => void openProof(card)}
+                      >
+                        Proof &amp; history
+                      </button>
                     </li>
                   );
                 })}
@@ -319,6 +344,49 @@ export function Operations() {
           </div>
         ))}
       </section>
+
+      {proofCard ? (
+        <>
+          <div className="sheet-overlay" onClick={() => setProofCard(null)} />
+          <div className="dialog-card" role="dialog" aria-modal="true" aria-labelledby="proof-title">
+            <div className="dialog-head">
+              <h2 className="dialog-title" id="proof-title">Proof &amp; history</h2>
+              <button type="button" className="btn btn-ghost" aria-label="Close" onClick={() => setProofCard(null)}>
+                ✕
+              </button>
+            </div>
+            <p className="muted">{proofCard.title} · {proofCard.propertyName}</p>
+            {!proof ? (
+              <p className="loading">Loading…</p>
+            ) : (
+              <div className="dialog-form">
+                <h3 className="worker-proof-heading">Photos</h3>
+                {proof.photos.length === 0 ? (
+                  <p className="muted">No photos yet.</p>
+                ) : (
+                  <div className="worker-photo-grid">
+                    {proof.photos.map((photo) => (
+                      <img key={photo.id} src={photo.dataUrl} alt={`Proof by ${photo.by ?? 'unknown'}`} />
+                    ))}
+                  </div>
+                )}
+                <h3 className="worker-proof-heading">Who did what</h3>
+                <ol className="worker-events">
+                  {proof.events.map((event) => (
+                    <li key={event.id}>
+                      <strong>{event.by ?? 'System'}</strong> · {event.action.replace(/_/g, ' ')}{' '}
+                      <small>{new Date(event.createdAt).toLocaleString('en-GB', {
+                        timeZone: 'Africa/Nairobi',
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}</small>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
 
       {dialogOpen ? (
         <>
