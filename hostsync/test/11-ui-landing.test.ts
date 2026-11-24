@@ -126,4 +126,15 @@ test('the uploaded HostSync compass logo is served and used as the brand', async
   assert.ok(asset.bytes > 10_000, 'the real image is served, not a placeholder');
   assert.ok(asset.etag, 'static assets carry a validator');
   assert.equal(asset.revalidated, 304, 'a repeat visit reuses the cached copy');
+
+  const pwa = await page.evaluate(async () => {
+    const g = globalThis as any;
+    const link = g.document.querySelector('link[rel="manifest"]')?.getAttribute('href');
+    const response = await g.fetch('/manifest.webmanifest');
+    const manifest = await response.json();
+    return { link, status: response.status, startUrl: manifest.start_url };
+  });
+  assert.equal(pwa.link, '/manifest.webmanifest');
+  assert.equal(pwa.status, 200, 'the phone-screen manifest is served');
+  assert.equal(pwa.startUrl, '/my-jobs');
 });

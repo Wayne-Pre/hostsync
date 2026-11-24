@@ -263,6 +263,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
   }
 
+  // ---- installable phone screen -------------------------------------------
+  app.get('/manifest.webmanifest', async (_request, reply) => {
+    if (!sendAsset('/manifest.webmanifest', reply)) {
+      reply.code(404).send({ error: 'not_found', message: 'no manifest' });
+    }
+  });
+
   // ---- built assets --------------------------------------------------------
   app.get('/assets/*', async (request, reply) => {
     if (!sendAsset(request.url, reply, request)) {
