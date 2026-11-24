@@ -27,6 +27,14 @@ interface ReviewSettings {
   daysAfterCheckout: number;
 }
 
+const CHANNEL_HINT: Record<string, string> = {
+  airbnb: 'Add a calendar link with source Airbnb in Properties → Calendar link.',
+  booking_com: 'Add a calendar link with source Booking.com in Properties → Calendar link.',
+  vrbo: 'Add a calendar link with source Vrbo in Properties → Calendar link.',
+  direct: 'Log a manual stay in Bookings.',
+  whatsapp: 'Set a business number here — this turns on by itself.',
+};
+
 export function SettingsScreen() {
   const toast = useToast();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -77,25 +85,13 @@ export function SettingsScreen() {
     }
   }
 
-  async function toggleChannel(channel: ChannelState, connected: boolean) {
-    try {
-      await sendJson('POST', `/api/channels/${channel.channel}`, {
-        connected,
-        businessNumber: channel.businessNumber,
-      });
-      toast(connected ? `${channel.label} connected` : `${channel.label} disconnected`);
-      await load();
-    } catch (caught) {
-      toast(caught instanceof Error ? caught.message : 'Could not change that channel', 'error');
-    }
-  }
-
   async function setBusinessNumber(channel: ChannelState, value: string) {
     try {
       await sendJson('POST', `/api/channels/${channel.channel}`, {
-        connected: channel.connected,
+        connected: Boolean(value.trim()),
         businessNumber: value,
       });
+      toast(value.trim() ? `${channel.label} connected` : `${channel.label} disconnected`);
       await load();
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : 'Could not save that number', 'error');
@@ -219,12 +215,15 @@ export function SettingsScreen() {
       <section className="panel" aria-labelledby="channels-title">
         <header className="panel-head">
           <h2 id="channels-title">Channels</h2>
-          <p>What is connected. WhatsApp needs a business number.</p>
+          <p>
+            Read-only indicators. They switch on by themselves once real setup exists — ticking a
+            box cannot connect a channel.
+          </p>
         </header>
-        <ul className="request-list" data-testid="channel-list">
+        <ul className="request-list channel-list" data-testid="channel-list">
           {channels.map((channel) => (
-            <li key={channel.channel} data-channel={channel.channel}>
-              <span>
+            <li key={channel.channel} data-channel={channel.channel} data-connected={channel.connected}>
+              <span className="channel-name">
                 {channel.label}
                 {channel.channel === 'whatsapp' ? (
                   <input
@@ -235,15 +234,13 @@ export function SettingsScreen() {
                     onBlur={(event) => void setBusinessNumber(channel, event.target.value)}
                   />
                 ) : null}
+                <small className="channel-hint">
+                  {channel.connected ? 'Detected from your setup.' : CHANNEL_HINT[channel.channel]}
+                </small>
               </span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={channel.connected}
-                  onChange={(event) => void toggleChannel(channel, event.target.checked)}
-                />
-                <span>{channel.connected ? 'Connected' : 'Not connected'}</span>
-              </label>
+              <span className={`channel-badge${channel.connected ? ' is-connected' : ''}`}>
+                {channel.connected ? 'Connected' : 'Not connected'}
+              </span>
             </li>
           ))}
         </ul>

@@ -2681,3 +2681,46 @@ textarea {
     font-size: 38px;
   }
 }
+
+/* Channels are read-only indicators, never clickable switches */
+.channel-list li {
+  align-items: flex-start;
+}
+
+.channel-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.channel-hint {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 60ch;
+}
+
+.channel-badge {
+  display: inline-block;
+  flex: none;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.channel-badge.is-connected {
+  border-style: solid;
+  border-color: rgba(171, 125, 68, 0.5);
+  background: rgba(171, 125, 68, 0.08);
+  color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .channel-list li {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

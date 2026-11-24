@@ -323,7 +323,7 @@ Note the load pattern: **the dashboard fires 8 parallel `limit=400` list calls**
 |---|---|---|
 | F-73 | Portfolio details | Portfolio name, location, default management fee %, guest support email, WhatsApp number |
 | F-74 | Review automation | Switch (on by default) plus *"Days after checkout"*; *"Log a request after every completed stay."* |
-| F-75 | Channel connectivity | Airbnb / Booking.com / Vrbo `Connected`; WhatsApp Business `Not connected — Delivery needs a business number`; SMS `Not connected — Delivery needs a sending number` |
+| F-75 | Channel indicators | Read-only status, never a toggle: Airbnb / Booking.com / Vrbo turn on when a calendar feed with that source exists, Direct when a manual stay exists, WhatsApp when a business number is saved. A click cannot fake a connection |
 | F-76 | Team roster | Name, role, phone, rate, reliability % (`88 % Reliability`), with `Pause` / `Activate` |
 | F-77 | Add team member | Name, role (Cleaner / Maintenance / Inspector / Supervisor), phone, rate |
 
@@ -409,7 +409,7 @@ Legend: **U** unit · **I** integration (API + DB) · **E** end-to-end (Playwrig
 | T-72 | Statement status | `draft → approved → paid` transitions enforced; illegal transition (paid → draft) rejected 409 | I |
 | T-73 | Portfolio details | Patch all five fields → persisted and re-read; management fee 150 → 422 | I |
 | T-74 | Review automation | Toggle off and set days=3 → both persisted; scheduler honours it | I |
-| T-75 | Channel states | Connected/Not-connected rendering driven by stored config; connecting WhatsApp requires a business number | I |
+| T-75 | Channel states | Indicators derived from real setup (calendar feeds, manual stays, WhatsApp number); a POST with `connected: true` and no setup stays off; WhatsApp still requires a business number | I |
 | T-76 | Team roster | Roster renders name, role, phone, rate, reliability; Pause → `active=false` and the member disappears from assignment pickers | I |
 | T-77 | Add team member | Valid member → 201 and appears; invalid role → 422; duplicate phone → 409 | I |
 
@@ -835,13 +835,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 166
-ℹ pass 166
+ℹ tests 167
+ℹ pass 167
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 89 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 90 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 

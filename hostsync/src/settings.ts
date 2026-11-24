@@ -118,24 +118,53 @@ export async function updatePortfolioSettings(
   return portfolioSettings(portfolioId);
 }
 
+/**
+ * Channel indicators are derived from real setup, never from a click:
+ *  - Airbnb / Booking.com / Vrbo — a calendar feed with that source exists.
+ *  - Direct — at least one manual stay is being tracked.
+ *  - WhatsApp — a business number has been saved.
+ * A checkbox alone cannot fake any of them.
+ */
 export async function channelStates(portfolioId: string): Promise<ChannelState[]> {
-  const rows = await query<{ channel: ChannelId; connected: boolean; business_number: string | null }>(
-    'select channel, connected, business_number from channel_connection where portfolio_id = $1',
-    [portfolioId]
-  );
-  const byChannel = new Map(rows.map((row) => [row.channel, row]));
+  const [feeds, manual, whatsapp] = await Promise.all([
+    query<{ source: ChannelId }>(
+      `select distinct cf.source
+         from calendar_feed cf
+         join property p on p.id = cf.property_id
+        where p.portfolio_id = $1`,
+      [portfolioId]
+    ),
+    queryOne<{ yes: boolean }>(
+      `select true::boolean as yes
+         from booking b join property p on p.id = b.property_id
+        where p.portfolio_id = $1 and b.source = 'manual'
+        limit 1`,
+      [portfolioId]
+    ),
+    queryOne<{ business_number: string | null }>(
+      `select business_number from channel_connection
+        where portfolio_id = $1 and channel = 'whatsapp'`,
+      [portfolioId]
+    ),
+  ]);
 
-  return CHANNELS.map((channel) => {
-    const row = byChannel.get(channel);
-    return {
-      channel,
-      label: CHANNEL_LABEL[channel],
-      connected: row?.connected ?? false,
-      businessNumber: row?.business_number ?? null,
-    };
-  });
+  const sources = new Set(feeds.map((feed) => feed.source));
+  const whatsappNumber = whatsapp?.business_number?.trim() ? whatsapp.business_number : null;
+
+  return CHANNELS.map((channel) => ({
+    channel,
+    label: CHANNEL_LABEL[channel],
+    connected:
+      channel === 'whatsapp'
+        ? whatsappNumber !== null
+        : channel === 'direct'
+          ? manual !== null
+          : sources.has(channel),
+    businessNumber: channel === 'whatsapp' ? whatsappNumber : null,
+  }));
 }
 
+/** Save the one thing a human can actually configure: the WhatsApp line. */
 export async function setChannelState(
   portfolioId: string,
   channel: string,
@@ -147,26 +176,21 @@ export async function setChannelState(
   }
 
   // WhatsApp is a business line or it is nothing.
-  if (input.connected && id === 'whatsapp' && !input.businessNumber?.trim()) {
+  if (id === 'whatsapp' && !input.businessNumber?.trim()) {
     throw new ValidationError('WhatsApp needs a business number', 'businessNumber');
   }
 
-  const row = await queryOne<{ channel: ChannelId; connected: boolean; business_number: string | null }>(
+  await query(
     `insert into channel_connection (portfolio_id, channel, connected, business_number)
      values ($1, $2, $3, $4)
      on conflict (portfolio_id, channel)
      do update set connected = excluded.connected,
                    business_number = excluded.business_number,
-                   updated_at = now()
-     returning channel, connected, business_number`,
-    [portfolioId, id, input.connected, input.businessNumber?.trim() || null]
+                   updated_at = now()`,
+    [portfolioId, id, input.businessNumber?.trim() ? true : false, input.businessNumber?.trim() || null]
   );
-  if (!row) throw new Error('channel connection upsert returned no row');
 
-  return {
-    channel: row.channel,
-    label: CHANNEL_LABEL[row.channel],
-    connected: row.connected,
-    businessNumber: row.business_number,
-  };
+  const state = (await channelStates(portfolioId)).find((entry) => entry.channel === id);
+  if (!state) throw new Error('channel state could not be read back');
+  return state;
 }

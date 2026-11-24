@@ -11,7 +11,8 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
 import { closePool } from '../src/db.ts';
 import { createCaptureTransport } from '../src/mail.ts';
-import { deleteUser, signUp } from './api-helpers.ts';
+import { createBooking, createProperty, deleteUser, signUp } from './api-helpers.ts';
+import { addDays, todayUTC } from '../src/dates.ts';
 import type { ApiUser } from './api-helpers.ts';
 
 const mailer = createCaptureTransport();
@@ -141,28 +142,46 @@ test('T-74 the review automation switch and delay are stored, and 31 days is ref
   assert.equal((outside.json() as { field: string }).field, 'daysAfterCheckout');
 });
 
-test('T-75 every channel has a state, WhatsApp needs a business number', async () => {
-  const initial = await get<{ channels: Array<{ channel: string; label: string; connected: boolean }> }>(
-    '/api/channels'
-  );
+test('T-75 channel indicators turn on only when real setup exists', async () => {
+  type Channels = { channels: Array<{ channel: string; label: string; connected: boolean }> };
+  const read = () => get<Channels>('/api/channels');
+  const isOn = (data: Channels, channel: string) =>
+    data.channels.find((entry) => entry.channel === channel)?.connected;
+
+  const initial = await read();
   assert.deepEqual(
     initial.channels.map((entry) => entry.channel),
     ['airbnb', 'booking_com', 'vrbo', 'direct', 'whatsapp'],
     'all five channels are listed in the product order'
   );
-  assert.equal(
-    initial.channels.every((entry) => entry.connected === false),
-    true,
-    'nothing is connected until it is connected'
-  );
+  assert.equal(initial.channels.every((entry) => entry.connected === false), true);
   assert.equal(initial.channels[1]?.label, 'Booking.com');
 
+  const property = await createProperty(app, user, { name: 'Channel House' });
+
+  // A click cannot fake a connection any more.
   await send('POST', '/api/channels/airbnb', { connected: true, businessNumber: null });
-  const afterAirbnb = await get<{ channels: Array<{ channel: string; connected: boolean }> }>(
-    '/api/channels'
-  );
-  assert.equal(afterAirbnb.channels.find((entry) => entry.channel === 'airbnb')?.connected, true);
-  assert.equal(afterAirbnb.channels.find((entry) => entry.channel === 'vrbo')?.connected, false);
+  assert.equal(isOn(await read(), 'airbnb'), false, 'the old flag cannot connect Airbnb');
+
+  // A calendar link with that source can.
+  await send('PUT', `/api/properties/${property.id}/calendar-feed`, {
+    url: 'https://example.com/airbnb.ics',
+    source: 'airbnb',
+  });
+  const afterFeed = await read();
+  assert.equal(isOn(afterFeed, 'airbnb'), true, 'a real calendar link connects Airbnb');
+  assert.equal(isOn(afterFeed, 'vrbo'), false, 'the other channels stay off');
+
+  // A manual stay is what "Direct" actually means.
+  await createBooking(app, user, {
+    propertyId: property.id,
+    guestName: 'Sofia Alvarez',
+    channel: 'direct',
+    checkIn: addDays(todayUTC(), 4),
+    checkOut: addDays(todayUTC(), 7),
+    guests: 2,
+  });
+  assert.equal(isOn(await read(), 'direct'), true, 'a manual stay connects Direct');
 
   // WhatsApp is a business line or it is nothing.
   const refused = await app.inject({
@@ -181,6 +200,7 @@ test('T-75 every channel has a state, WhatsApp needs a business number', async (
   );
   assert.equal(connected.channel.connected, true);
   assert.equal(connected.channel.businessNumber, '+254 711 222 333');
+  assert.equal(isOn(await read(), 'whatsapp'), true, 'a saved business number connects WhatsApp');
 
   const unknown = await app.inject({
     method: 'POST',

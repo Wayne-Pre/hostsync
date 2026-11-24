@@ -130,3 +130,31 @@ test('T-13 at 390 px the sidebar hides, "Open navigation" opens a drawer and its
   await page.waitForURL((url) => url.pathname === '/calendar');
   assert.equal(new URL(page.url()).pathname, '/calendar');
 });
+
+test('the channel boxes are read-only indicators that flip from real setup', async () => {
+  const page = await ui.signedIn(user);
+  await page.goto('/settings');
+
+  const list = page.locator('[data-testid="channel-list"]');
+  await list.waitFor();
+  assert.equal(await list.locator('input[type="checkbox"]').count(), 0, 'no fake clickable boxes');
+
+  const airbnb = list.locator('[data-channel="airbnb"]');
+  assert.equal(await airbnb.getAttribute('data-connected'), 'false');
+  assert.equal((await airbnb.locator('.channel-badge').innerText()).trim(), 'Not connected');
+
+  const property = await createProperty(ui.app, user, { name: 'Channel UI House' });
+  await ui.app.inject({
+    method: 'PUT',
+    url: `/api/properties/${property.id}/calendar-feed`,
+    headers: { cookie: user.cookie },
+    payload: { url: 'https://example.com/airbnb-ui.ics', source: 'airbnb' },
+  });
+
+  await page.reload();
+  await page.waitForFunction(
+    `() => document.querySelector('[data-channel="airbnb"]')?.getAttribute('data-connected') === 'true'`
+  );
+  assert.equal((await airbnb.locator('.channel-badge').innerText()).trim(), 'Connected');
+  await page.context().close();
+});
