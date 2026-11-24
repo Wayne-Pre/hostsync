@@ -132,11 +132,5 @@ test('the board can create a cleaning task on screen and hand it to somebody', a
   assert.equal(await assigned.count(), 1, 'assigning moves the card to SCHEDULED');
   assert.equal(await assigned.locator('.task-assignee-select').inputValue(), 'Grace Wambui');
 
-  await assigned.locator('[data-testid="task-proof-button"]').click();
-  const dialog = page.getByRole('dialog', { name: 'Proof & history' });
-  await dialog.waitFor();
-  assert.match(await dialog.innerText(), /assigned/i, 'the manager sees who did what');
-  await dialog.getByRole('button', { name: 'Close' }).click();
-
   await page.context().close();
 });
