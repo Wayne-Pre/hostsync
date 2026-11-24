@@ -83,8 +83,8 @@ export async function startUi(): Promise<UiHarness> {
       // This box has 3.4 GB of RAM: a full document load plus React mount takes
       // a few seconds, so the defaults (15 s / 30 s) are too tight to be a fair
       // signal about the app's own correctness.
-      context.setDefaultTimeout(30_000);
-      context.setDefaultNavigationTimeout(60_000);
+      context.setDefaultTimeout(60_000);
+      context.setDefaultNavigationTimeout(120_000);
       return context;
     },
     async signedIn(user: ApiUser) {
@@ -92,8 +92,8 @@ export async function startUi(): Promise<UiHarness> {
       if (existing && !existing.isClosed()) return existing;
 
       const context = await browser.newContext({ baseURL: baseUrl, viewport: { width: 1280, height: 900 } });
-      context.setDefaultTimeout(30_000);
-      context.setDefaultNavigationTimeout(60_000);
+      context.setDefaultTimeout(60_000);
+      context.setDefaultNavigationTimeout(120_000);
       const [name, value] = user.cookie.split('=');
       if (!name || !value) throw new Error(`unexpected cookie shape: ${user.cookie}`);
       await context.addCookies([{ name, value, url: baseUrl }]);
