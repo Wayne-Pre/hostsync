@@ -39,5 +39,14 @@ jobs:
         run: npm ci
         working-directory: hostsync
       - name: Typecheck, bundle, migrate and run every test
-        run: node scripts/selfcheck.mjs
+        shell: bash
+        run: |
+          set +e
+          node scripts/selfcheck.mjs 2>&1 | tee selfcheck.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            detail=$(tail -n 45 selfcheck.log | tr '\n' ' ' | cut -c1-2800)
+            echo "::error title=Self-check failure::$detail"
+          fi
+          exit "$code"
         working-directory: hostsync
