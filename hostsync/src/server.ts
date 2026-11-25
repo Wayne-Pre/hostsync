@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { buildApp } from './app.ts';
+import { startCalendarSync } from './calendar-sync.ts';
 
 /**
  * The dev/prod entry point.
@@ -26,12 +27,18 @@ const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '0.0.0.0';
 
 const app = buildApp({ logger: process.env.LOG_LEVEL !== 'silent' });
+let stopCalendarSync: () => void = () => {};
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    stopCalendarSync();
     void app.close().then(() => process.exit(0));
   });
 }
 
 await app.listen({ port, host });
 app.log.info(`HostSync ready on http://${host}:${port}`);
+
+// A free host wakes this process on traffic; the first sync pass therefore
+// happens after every idle period, and the timer covers an awake session.
+stopCalendarSync = startCalendarSync((message) => app.log.info(message));

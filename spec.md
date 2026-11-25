@@ -818,6 +818,7 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 | Phone layout | **Done** — below 900 px the shell becomes one full-width column with a clean brand bar, stacked cards and the original dark slide-in drawer; T-13 asserts the content fills a 390 px viewport with no horizontal overflow |
 | Field-worker login | **Done** — migration 016 adds `app_user.account_role`, links a `team_member` to a login, and stores task photos and attributed events. A cleaner gets `/my-jobs` with only assigned work, start/checklist/photo/done, and an installable phone screen; the manager sees the same proof and audit trail on the board |
 | Channel indicators | **Done** — the settings boxes are read-only: Airbnb/Booking.com/Vrbo turn on from real calendar feeds, Direct from a manual stay, WhatsApp from a saved business number; a click alone cannot fake a connection |
+| Automatic calendar sync | **Done** — the server syncs every workspace at startup (so each wake of a free host refreshes) and every 30 minutes while awake; `npm run sync:calendars` does one pass manually. T-26-style imports stay idempotent across workspaces |
 
 ### 8.4 Known deliberate divergences from the original
 
@@ -837,13 +838,13 @@ The properties and bookings screens (F-21–F-35) have their own browser test in
 `node scripts/selfcheck.mjs` (typecheck → web bundle → migrations → **every** test file, one at a time) ends with:
 
 ```
-ℹ tests 171
-ℹ pass 171
+ℹ tests 172
+ℹ pass 172
 ℹ fail 0
 SELF-CHECK PASSED
 ```
 
-All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 94 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
+All 77 features (F-01 – F-77) and all 77 contract tests (T-01 – T-77) are covered; the extra 95 assertions are the defect-level tests the original could not ship (constraint races, pricing reproduction, SSRF gates, idempotent sync, honest failure states) plus the Stage 3 exit criteria (append-only ledger, frozen statements, zero-drift reconciliation, real statement detail, effective-dated fees) and the HTTPS mail transport used in deployment.
 
 Reproduce it with:
 

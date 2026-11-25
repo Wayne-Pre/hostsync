@@ -121,3 +121,4 @@ npm run reconcile
 - No persistent disk: never write user uploads to the app filesystem.
 - Data is real once you sign people up. The old Base44 content was demo data; this deployment starts empty.
 - Marketing demo accounts (only these two are touched by `npm run seed:demo`): owner `demo@hostsync.app` / `Demo12345!` and field worker `cleaner@hostsync.app` / `Cleaner12345!`. The worker sees only jobs assigned to "Otieno Kefa" at `/my-jobs`; the same screen can be added to a phone home screen via the web manifest. Every task step is stored with its actor and timestamp, and proof photos live in Postgres.
+- Calendar links sync automatically at server startup (each wake of a free host) and every 30 minutes while awake; override with `CALENDAR_SYNC_MINUTES`. `npm run sync:calendars` runs one pass on demand.

@@ -336,3 +336,19 @@ export async function syncPortfolioFeeds(
   for (const feed of feeds) results.push(await syncFeed(feed.id, options));
   return results;
 }
+
+/** Every workspace with at least one calendar link, for the scheduled job. */
+export async function syncAllPortfolios(
+  options: SyncOptions = {}
+): Promise<{ portfolios: number; outcomes: SyncOutcome[] }> {
+  const rows = await query<{ id: string }>(
+    `select distinct p.id
+       from portfolio p
+       join property pr on pr.portfolio_id = p.id and pr.deleted_at is null
+       join calendar_feed f on f.property_id = pr.id
+      order by p.id`
+  );
+  const outcomes: SyncOutcome[] = [];
+  for (const row of rows) outcomes.push(...(await syncPortfolioFeeds(row.id, options)));
+  return { portfolios: rows.length, outcomes };
+}
