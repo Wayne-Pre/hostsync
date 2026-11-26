@@ -7,6 +7,7 @@
 import { query, queryOne, withTransaction } from './db.ts';
 import { ConflictError, NotFoundError, ValidationError } from './errors.ts';
 import { assertPasswordAcceptable, hashPassword } from './auth/passwords.ts';
+import { revokeAllSessions } from './auth/sessions.ts';
 import { normalizeEmail } from './auth/tokens.ts';
 
 export const TEAM_ROLES = [
@@ -29,6 +30,10 @@ export interface TeamMember {
   hourlyRateCents: number;
   reliabilityPct: number;
   active: boolean;
+  /** True once this member has been given a phone login. */
+  hasAccount: boolean;
+  /** The address they sign in with; null until an account exists. */
+  loginEmail: string | null;
 }
 
 interface MemberRow {
@@ -40,6 +45,8 @@ interface MemberRow {
   hourly_rate_cents: string | number;
   reliability_pct: number;
   active: boolean;
+  user_id?: string | null;
+  email?: string | null;
 }
 
 function mapMember(row: MemberRow): TeamMember {
@@ -52,13 +59,21 @@ function mapMember(row: MemberRow): TeamMember {
     hourlyRateCents: Number(row.hourly_rate_cents),
     reliabilityPct: Number(row.reliability_pct),
     active: row.active,
+    hasAccount: Boolean(row.user_id),
+    loginEmail: row.email ?? null,
   };
 }
 
+/** The roster plus the login that belongs to each member, if any. */
+const MEMBER_COLUMNS = `m.id, m.portfolio_id, m.name, m.role, m.phone,
+     m.hourly_rate_cents, m.reliability_pct, m.active, m.user_id, u.email`;
+
+const MEMBER_FROM = `from team_member m left join app_user u on u.id = m.user_id`;
+
 export async function listTeam(portfolioId: string): Promise<TeamMember[]> {
   const rows = await query<MemberRow>(
-    `select id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active
-       from team_member where portfolio_id = $1 order by name`,
+    `select ${MEMBER_COLUMNS} ${MEMBER_FROM}
+      where m.portfolio_id = $1 order by m.name`,
     [portfolioId]
   );
   return rows.map(mapMember);
@@ -67,11 +82,19 @@ export async function listTeam(portfolioId: string): Promise<TeamMember[]> {
 /** Only the members who can be handed work right now. */
 export async function listAssignableTeam(portfolioId: string): Promise<TeamMember[]> {
   const rows = await query<MemberRow>(
-    `select id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active
-       from team_member where portfolio_id = $1 and active order by name`,
+    `select ${MEMBER_COLUMNS} ${MEMBER_FROM}
+      where m.portfolio_id = $1 and m.active order by m.name`,
     [portfolioId]
   );
   return rows.map(mapMember);
+}
+
+async function loadMember(memberId: string): Promise<TeamMember | null> {
+  const row = await queryOne<MemberRow>(
+    `select ${MEMBER_COLUMNS} ${MEMBER_FROM} where m.id = $1`,
+    [memberId]
+  );
+  return row ? mapMember(row) : null;
 }
 
 export interface AddMemberInput {
@@ -148,7 +171,7 @@ export async function createWorkerAccount(input: {
   const password = assertPasswordAcceptable(input.password);
   const hash = await hashPassword(password);
 
-  return withTransaction(async (client) => {
+  await withTransaction(async (client) => {
     const member = await client.query<MemberRow>(
       `select id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active
          from team_member where id = $1 and portfolio_id = $2`,
@@ -173,16 +196,41 @@ export async function createWorkerAccount(input: {
     const userId = created.rows[0]?.id;
     if (!userId) throw new Error('worker account insert returned no row');
 
-    const updated = await client.query<MemberRow>(
-      `update team_member set user_id = $2, updated_at = now()
-        where id = $1
-        returning id, portfolio_id, name, role, phone, hourly_rate_cents, reliability_pct, active, user_id`,
+    await client.query(
+      `update team_member set user_id = $2, updated_at = now() where id = $1`,
       [input.memberId, userId]
     );
-    const row = updated.rows[0];
-    if (!row) throw new NotFoundError('team member');
-    return mapMember(row);
   });
+  const member = await loadMember(input.memberId);
+  if (!member) throw new NotFoundError('team member');
+  return member;
+}
+
+/** A manager issues a new password; every old session for that worker dies. */
+export async function resetWorkerPassword(input: {
+  memberId: string;
+  portfolioId: string;
+  password: string;
+}): Promise<TeamMember> {
+  const password = assertPasswordAcceptable(input.password);
+  const hash = await hashPassword(password);
+
+  const row = await queryOne<{ user_id: string | null }>(
+    'select user_id from team_member where id = $1 and portfolio_id = $2',
+    [input.memberId, input.portfolioId]
+  );
+  if (!row) throw new NotFoundError('team member');
+  if (!row.user_id) throw new ValidationError('this member has no login yet', 'memberId');
+
+  await query('update app_user set password_hash = $2, force_password_reset = false where id = $1', [
+    row.user_id,
+    hash,
+  ]);
+  await revokeAllSessions(row.user_id);
+
+  const member = await loadMember(input.memberId);
+  if (!member) throw new NotFoundError('team member');
+  return member;
 }
 
 /** Pausing keeps the record and clears the member from the assignment pickers. */
@@ -191,15 +239,15 @@ export async function setMemberActive(
   portfolioId: string,
   active: boolean
 ): Promise<TeamMember> {
-  const row = await queryOne<MemberRow>(
-    `update team_member m
+  const row = await queryOne<{ id: string }>(
+    `update team_member
         set active = $3, updated_at = now()
-       from portfolio p
-      where m.id = $1 and m.portfolio_id = $2 and p.id = m.portfolio_id
-      returning m.id, m.portfolio_id, m.name, m.role, m.phone,
-                m.hourly_rate_cents, m.reliability_pct, m.active`,
+      where id = $1 and portfolio_id = $2
+      returning id`,
     [memberId, portfolioId, active]
   );
   if (!row) throw new NotFoundError('team member');
-  return mapMember(row);
+  const member = await loadMember(memberId);
+  if (!member) throw new NotFoundError('team member');
+  return member;
 }

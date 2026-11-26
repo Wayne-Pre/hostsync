@@ -37,6 +37,7 @@ import {
   findWorkerMembership,
   listAssignableTeam,
   listTeam,
+  resetWorkerPassword,
   setMemberActive,
 } from './team.ts';
 import { listThreads, getThread, createConversation, REPLY_CHANNELS, reply as sendGuestReply } from './inbox.ts';
@@ -1039,6 +1040,18 @@ export async function registerApi(
           password: String(input.password ?? ''),
         });
         reply.code(201).send({ member });
+      });
+
+      // A manager issues a new password for an existing worker login.
+      api.post('/team/:id/worker-password', async (request) => {
+        const portfolio = await requirePortfolio(request.session!.user.id);
+        const input = body(request);
+        const member = await resetWorkerPassword({
+          memberId: params(request).id!,
+          portfolioId: portfolio.id,
+          password: String(input.password ?? ''),
+        });
+        return { member };
       });
 
       api.post('/team/:id/pause', async (request) => {

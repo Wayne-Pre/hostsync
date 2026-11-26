@@ -15,6 +15,7 @@ import { SettingsScreen } from './settings.tsx';
 import { Properties } from './properties.tsx';
 import { Bookings } from './bookings.tsx';
 import { MyJobs } from './myjobs.tsx';
+import { TeamScreen } from './team.tsx';
 
 /**
  * The whole router.
@@ -41,13 +42,14 @@ export function App() {
 }
 
 function isAppPage(path: string): boolean {
-  return NAV.some((item) => item.href === path);
+  return path === '/team' || NAV.some((item) => item.href === path);
 }
 
 function screenFor(path: string) {
   if (path === '/dashboard') return <Dashboard />;
   if (path === '/calendar') return <CalendarScreen />;
   if (path === '/operations') return <Operations />;
+  if (path === '/team') return <TeamScreen />;
   if (path === '/inbox') return <Inbox />;
   if (path === '/reviews') return <Reviews />;
   if (path === '/financials') return <Financials />;

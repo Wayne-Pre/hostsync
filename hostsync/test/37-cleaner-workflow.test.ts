@@ -182,3 +182,48 @@ test('the manager can read the proof and the named audit trail', async () => {
     'check_checked', 'check_checked', 'photo_added', 'complete']);
   assert.ok(proof.events.every((event) => event.by === 'Otieno Kefa'), 'every step is attributed');
 });
+
+test('the roster says who has a login, and a manager can replace the password', async () => {
+  const roster = await app.inject({
+    method: 'GET',
+    url: '/api/team',
+    headers: { cookie: owner.cookie },
+  });
+  assert.equal(roster.statusCode, 200, roster.body);
+  const mine = (roster.json() as {
+    members: Array<{ id: string; hasAccount: boolean; loginEmail: string | null }>;
+  }).members.find((member) => member.id === memberId);
+  assert.equal(mine?.hasAccount, true, 'the roster shows the login exists');
+  assert.equal(mine?.loginEmail, workerEmail, 'and which address it uses');
+
+  const stranger = await app.inject({
+    method: 'POST',
+    url: '/api/team/00000000-0000-0000-0000-000000000000/worker-password',
+    headers: { cookie: owner.cookie },
+    payload: { password: 'Another123!' },
+  });
+  assert.equal(stranger.statusCode, 404, 'another portfolio cannot reset this login');
+
+  const reset = await app.inject({
+    method: 'POST',
+    url: `/api/team/${memberId}/worker-password`,
+    headers: { cookie: owner.cookie },
+    payload: { password: 'Replaced123!' },
+  });
+  assert.equal(reset.statusCode, 200, reset.body);
+
+  const oldSession = await worker('GET', '/api/my-jobs');
+  assert.equal(oldSession.statusCode, 401, 'a reset ends the old sessions');
+  const oldPassword = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { email: workerEmail, password: PASSWORD },
+  });
+  assert.equal(oldPassword.statusCode, 422, 'the old password no longer works');
+  const newPassword = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { email: workerEmail, password: 'Replaced123!' },
+  });
+  assert.equal(newPassword.statusCode, 200, newPassword.body);
+});

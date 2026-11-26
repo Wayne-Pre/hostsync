@@ -46,6 +46,7 @@ export const APP_PAGES = [
   '/bookings',
   '/properties',
   '/operations',
+  '/team',
   '/inbox',
   '/reviews',
   '/financials',

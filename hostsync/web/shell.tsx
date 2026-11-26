@@ -14,6 +14,11 @@ import { NAV } from './nav.ts';
 
 export type { NavItem } from './nav.ts';
 
+/** Screens reachable from the shell that are not one of the ten sidebar items. */
+const PAGE_TITLE: Record<string, string> = {
+  '/team': 'Team & access',
+};
+
 export interface Identity {
   user: { id: string; email: string; displayName: string | null; isVerified?: boolean };
   portfolio: { id: string; name: string; currency: string };
@@ -127,6 +132,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           HostSync
         </a>
         <NavLinks pathname={pathname} />
+        <a
+          className={`nav-sub${pathname === '/team' ? ' is-active' : ''}`}
+          href="/team"
+          data-testid="team-link"
+        >
+          Team &amp; access
+        </a>
       </aside>
 
       <div className="main">
@@ -145,6 +157,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Dialog.Title>
                 <Dialog.Description className="drawer-desc">SHORT-STAY OPERATIONS</Dialog.Description>
                 <NavLinks pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+                <a
+                  className={`nav-sub${pathname === '/team' ? ' is-active' : ''}`}
+                  href="/team"
+                  onClick={() => setDrawerOpen(false)}
+                >
+                  Team &amp; access
+                </a>
                 {identity ? (
                   <div className="drawer-foot">
                     <span className="drawer-user">
@@ -170,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </a>
 
           <div className="topbar-title">
-            <h1>{NAV.find((item) => item.href === pathname)?.label ?? 'Overview'}</h1>
+            <h1>{PAGE_TITLE[pathname] ?? NAV.find((item) => item.href === pathname)?.label ?? 'Overview'}</h1>
           </div>
 
           {identity ? <IdentityHeader identity={identity} /> : null}
