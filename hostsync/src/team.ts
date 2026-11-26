@@ -239,14 +239,22 @@ export async function setMemberActive(
   portfolioId: string,
   active: boolean
 ): Promise<TeamMember> {
-  const row = await queryOne<{ id: string }>(
+  const row = await queryOne<{ id: string; user_id: string | null }>(
     `update team_member
         set active = $3, updated_at = now()
       where id = $1 and portfolio_id = $2
-      returning id`,
+      returning id, user_id`,
     [memberId, portfolioId, active]
   );
   if (!row) throw new NotFoundError('team member');
+
+  // Pausing a person also switches their login off: an off-roster worker must
+  // not be able to keep signing in to see jobs.
+  if (row.user_id) {
+    await query('update app_user set disabled = $2 where id = $1', [row.user_id, !active]);
+    if (!active) await revokeAllSessions(row.user_id);
+  }
+
   const member = await loadMember(memberId);
   if (!member) throw new NotFoundError('team member');
   return member;

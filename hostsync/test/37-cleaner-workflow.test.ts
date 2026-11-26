@@ -227,3 +227,34 @@ test('the roster says who has a login, and a manager can replace the password', 
   });
   assert.equal(newPassword.statusCode, 200, newPassword.body);
 });
+
+test('pausing a person switches their login off, and resuming restores it', async () => {
+  const paused = await app.inject({
+    method: 'POST',
+    url: `/api/team/${memberId}/pause`,
+    headers: { cookie: owner.cookie },
+  });
+  assert.equal(paused.statusCode, 200, paused.body);
+
+  const session = await worker('GET', '/api/my-jobs');
+  assert.equal(session.statusCode, 401, 'the worker session ends when they are paused');
+  const blocked = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { email: workerEmail, password: 'Replaced123!' },
+  });
+  assert.equal(blocked.statusCode, 403, 'and they cannot sign in again');
+
+  const resumed = await app.inject({
+    method: 'POST',
+    url: `/api/team/${memberId}/resume`,
+    headers: { cookie: owner.cookie },
+  });
+  assert.equal(resumed.statusCode, 200, resumed.body);
+  const back = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { email: workerEmail, password: 'Replaced123!' },
+  });
+  assert.equal(back.statusCode, 200, back.body);
+});
